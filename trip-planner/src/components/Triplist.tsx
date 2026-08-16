@@ -75,10 +75,10 @@ export function Triplist() {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm p-6">
-      <h2 className="text-xl font-bold mb-4 text-gray-800">My Saved Places</h2>
+    <div className="flex flex-col">
+      <h2 className="text-lg font-bold mb-4 text-gray-800 hidden">My Saved Places</h2>
 
-      <form onSubmit={handleManualAdd} className="mb-6 relative">
+      <form onSubmit={handleManualAdd} className="mb-4 relative">
         <div className="flex gap-2">
           <div className="relative flex-1">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">

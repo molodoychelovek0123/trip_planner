@@ -75,10 +75,10 @@ export function DayPlan() {
   let currentMinutes = timeToMinutes(dayStartTime);
 
   return (
-    <div className="bg-white rounded-lg shadow-sm p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Day Plan</h2>
-        <div className="flex items-center space-x-2 bg-gray-100 px-3 py-1.5 rounded">
+    <div className="flex flex-col">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-lg font-bold text-gray-800 hidden">Day Plan</h2>
+        <div className="flex items-center space-x-2 bg-gray-100 px-3 py-1.5 rounded ml-auto">
           <Clock className="w-4 h-4 text-gray-600" />
           <input
             type="time"
