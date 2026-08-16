@@ -6,6 +6,10 @@ import { useDebounce } from '../utils/useDebounce';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
+/**
+ * Component for managing the user's pool of saved locations ("Triplist").
+ * Integrates with Google Places API (New) via a debounced fetch for autocompletion.
+ */
 export function Triplist() {
   const [inputValue, setInputValue] = useState('');
   const [suggestions, setSuggestions] = useState<any[]>([]);

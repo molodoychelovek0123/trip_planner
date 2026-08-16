@@ -1,7 +1,15 @@
+/**
+ * @fileoverview Central state management using Zustand for the TripPlanner application.
+ * Handles persistence to localStorage, multi-day itinerary management, and the saved places pool (Triplist).
+ */
+
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { v4 as uuidv4 } from 'uuid'
 
+/**
+ * Represents a saved geographical location.
+ */
 export interface Place {
   id: string;
   name: string;
@@ -11,6 +19,9 @@ export interface Place {
   recommendedDuration: number; // in minutes
 }
 
+/**
+ * Visual badge data for rendering specific transit vehicles (e.g., Metro lines).
+ */
 export interface TransitBadge {
   vehicleType: string;
   shortName: string;
@@ -18,12 +29,18 @@ export interface TransitBadge {
   textColor: string;
 }
 
+/**
+ * A single geographical step of a route, containing its mode and encoded path.
+ */
 export interface RouteStep {
   travelMode: string; // 'WALK', 'TRANSIT', 'DRIVE'
   encodedPolyline: string;
-  color?: string; // Used for transit lines, default to gray for walk, blue for drive
+  color?: string; // Used for transit lines, defaults to gray for walk, blue for drive
 }
 
+/**
+ * An alternative route option returned by the Google Routes API.
+ */
 export interface RouteAlternative {
   durationMinutes: number;
   summary: string;
@@ -31,27 +48,36 @@ export interface RouteAlternative {
   transitBadges?: TransitBadge[];
 }
 
+/**
+ * Represents the travel segment bridging the previous location and the current one.
+ */
 export interface TravelSegment {
-  durationMinutes: number; // dynamically matches the selected alternative
+  durationMinutes: number; // Dynamically matches the selected alternative
   mode: 'DRIVING' | 'WALKING' | 'TRANSIT';
   routeAlternatives?: RouteAlternative[];
   selectedRouteIndex?: number;
 }
 
+/**
+ * Represents a place scheduled within a specific day's itinerary.
+ */
 export interface DayPlanPlace extends Place {
   userDuration: number;
   travelFromPrevious?: TravelSegment;
-  uniqueId: string; // Unique ID for drag and drop since the same place can potentially be added multiple times
-  lockedArrivalTime?: string; // HH:MM format if the user explicitly sets an arrival time
+  uniqueId: string; // Unique ID for drag-and-drop (same Place ID can exist multiple times)
+  lockedArrivalTime?: string; // HH:MM format if the user explicitly anchors the schedule
 }
 
+/**
+ * Represents a single day in the multi-day trip.
+ */
 export interface DayData {
   id: string;
-  startTime: string; // HH:MM format, default "09:00"
+  startTime: string; // HH:MM format, defaults to "09:00"
   plan: DayPlanPlace[];
-  startHotelId?: string; // ID of the place in Triplist used as start hotel
-  endHotelId?: string;   // ID of the place in Triplist used as end hotel
-  endHotelTravel?: TravelSegment; // Route from the last plan point to the end hotel
+  startHotelId?: string; // ID of the place in Triplist used as the morning origin
+  endHotelId?: string;   // ID of the place in Triplist used as the evening destination
+  endHotelTravel?: TravelSegment; // Route from the last plan point back to the end hotel
 }
 
 const defaultPlaces: Place[] = [

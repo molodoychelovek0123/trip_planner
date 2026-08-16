@@ -1,32 +1,47 @@
-# React + TypeScript + Vite
+# TripPlanner - Stage 1 (Proof of Concept)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A pure frontend Proof of Concept for a dynamic, multi-day itinerary planner, inspired by the layouts of Google Maps and Wanderlog, with the powerful "smart time" calculation tools seen in JapanTravel.
 
-Currently, two official plugins are available:
+## Features (Pure Frontend)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+*   **Offline-First & Local Persistence**: State is managed via `Zustand` and synced to `localStorage`, allowing the app to reload instantly without losing the user's drafted plan.
+*   **Modern Google Maps Integration**:
+    *   Replaces deprecated legacy SDKs by utilizing `fetch` requests directly to the **Places API (New)** and **Routes API (v2)**.
+    *   Decodes and renders actual street-level polylines (`google.maps.geometry.encoding`).
+    *   Distinguishes between transit modes dynamically (rendering dotted lines for walking segments, solid colored lines for public transit).
+*   **Rich Transit UX**: Generates detailed, colored badges with native emojis (🚇, 🚌, 🚋) for alternative transit routes rather than generic options.
+*   **Smart Time Cascading & Locking**:
+    *   Times automatically cascade down the schedule when a new location or travel time is added.
+    *   Users can "lock" an arrival time (e.g., for a booked tour). If they arrive early, the system generates a **Free Time** block. If they arrive late, the system alerts them with a **Warning**, without aggressively shifting the rest of the fixed itinerary.
+*   **Multi-Day & Hotel Anchors**:
+    *   Users can switch between multiple days, dragging and dropping locations via `@dnd-kit`.
+    *   Start and End hotels can be set for each day, properly routing the first and last trips.
+*   **Smart Suggestions**: Calculates Haversine distances strictly on the client side to suggest the closest saved places, avoiding costly API calls.
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+*   **React + Vite** (Fast build, modern tooling)
+*   **TypeScript** (Strict typing for complex state)
+*   **Zustand** (Lightweight state management & persistence)
+*   **Tailwind CSS** (Rapid, responsive styling)
+*   **@dnd-kit** (Headless, accessible drag-and-drop)
+*   **Google Maps JS API Loader** (Dynamic script injection)
 
-## Expanding the Oxlint configuration
+## Setup
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+1.  Clone the repository and install dependencies:
+    ```bash
+    npm install
+    ```
+2.  Set up your Google Maps API key. Create a `.env` file in the root:
+    ```env
+    VITE_GOOGLE_MAPS_API_KEY="your_api_key_here"
+    ```
+    *Ensure your API key has Places API (New) and Routes API enabled in the Google Cloud Console.*
+3.  Start the development server:
+    ```bash
+    npm run dev
+    ```
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Moving Forward
+Read `NEXT_STEPS.md` to see the architectural plan for Stage 2 (Backend, Database, and Metrics).

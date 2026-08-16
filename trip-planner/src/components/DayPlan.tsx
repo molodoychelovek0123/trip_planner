@@ -23,7 +23,10 @@ import { CSS } from '@dnd-kit/utilities';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
-// --- Sortable Item Component ---
+/**
+ * Renders an individual, draggable location card within a day's itinerary.
+ * Handles the display of locked times, free time warnings, and travel segment UI.
+ */
 function SortablePlaceItem({
   place,
   index,
@@ -284,7 +287,10 @@ function SortablePlaceItem({
   );
 }
 
-// --- Main DayPlan Component ---
+/**
+ * Main component for assembling and managing the itinerary of a specific day.
+ * Includes drag-and-drop, hotel selection, and cascading time calculations.
+ */
 export function DayPlan() {
   const { triplist, days, activeDayId, setActiveDay, addDay, removeDay, setDayStartTime, updatePlaceDuration, removeFromDayPlan, updateTravelSegment, reorderDayPlan, setStartHotel, setEndHotel, updateEndHotelTravel, updateLockedArrivalTime } = useTripStore();
   const [calculatingId, setCalculatingId] = useState<string | null>(null);

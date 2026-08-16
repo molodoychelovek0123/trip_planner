@@ -5,6 +5,11 @@ import { MapContextMenu } from './MapContextMenu';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
+/**
+ * Renders the Google Map utilizing the `@googlemaps/js-api-loader`.
+ * Visualizes saved places (Triplist) as gray dots, and DayPlan places as numbered blue pins.
+ * Decodes and renders multi-segment polylines for calculated routes.
+ */
 export function MapView() {
   const mapRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<any>(null);
