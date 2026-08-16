@@ -163,7 +163,6 @@ function SortablePlaceItem({
                             ...place.travelFromPrevious,
                             durationMinutes: alt.durationMinutes,
                             selectedRouteIndex: idx,
-                            polyline: alt.encodedPolyline,
                           });
                         }
                       )
@@ -308,7 +307,7 @@ export function DayPlan() {
         headers: {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
-          'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.description,routes.legs.steps.transitDetails.transitLine.name,routes.legs.steps.transitDetails.transitLine.shortName,routes.legs.steps.transitDetails.transitLine.color,routes.legs.steps.transitDetails.transitLine.textColor,routes.legs.steps.transitDetails.transitLine.vehicle.type'
+          'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.description,routes.legs.steps.travelMode,routes.legs.steps.polyline.encodedPolyline,routes.legs.steps.transitDetails.transitLine.name,routes.legs.steps.transitDetails.transitLine.shortName,routes.legs.steps.transitDetails.transitLine.color,routes.legs.steps.transitDetails.transitLine.textColor,routes.legs.steps.transitDetails.transitLine.vehicle.type'
         },
         body: JSON.stringify(requestBody)
       });
@@ -325,33 +324,49 @@ export function DayPlan() {
 
           let summary = route.description || `Option ${index + 1}`;
           let transitBadges: any[] = [];
+          let steps: any[] = [];
 
-          // If transit, build badges from transit details
-          if (routingModeMap[mode] === 'TRANSIT' && route.legs) {
-             route.legs.forEach((leg: any) => {
-               if (leg.steps) {
-                 leg.steps.forEach((step: any) => {
-                   if (step.transitDetails && step.transitDetails.transitLine) {
+          if (route.legs) {
+            route.legs.forEach((leg: any) => {
+              if (leg.steps) {
+                leg.steps.forEach((step: any) => {
+                  let stepColor = undefined;
+
+                  if (step.travelMode === 'TRANSIT' && step.transitDetails && step.transitDetails.transitLine) {
                      const line = step.transitDetails.transitLine;
-                     transitBadges.push({
-                        vehicleType: line.vehicle?.type || 'BUS',
-                        shortName: line.shortName || line.name || '',
-                        color: line.color || '#3B82F6', // Default blue
-                        textColor: line.textColor || '#FFFFFF', // Default white
-                     });
-                   }
-                 });
-               }
-             });
-             if (transitBadges.length > 0) {
-               summary = transitBadges.map(b => b.shortName).join(' → ');
-             }
+                     stepColor = line.color || '#3B82F6';
+
+                     // Build badges only if this is a transit overall request, or we just want badges for any transit leg
+                     if (routingModeMap[mode] === 'TRANSIT') {
+                       transitBadges.push({
+                          vehicleType: line.vehicle?.type || 'BUS',
+                          shortName: line.shortName || line.name || '',
+                          color: stepColor,
+                          textColor: line.textColor || '#FFFFFF',
+                       });
+                     }
+                  }
+
+                  if (step.polyline && step.polyline.encodedPolyline) {
+                    steps.push({
+                      travelMode: step.travelMode || routingModeMap[mode],
+                      encodedPolyline: step.polyline.encodedPolyline,
+                      color: stepColor
+                    });
+                  }
+                });
+              }
+            });
+          }
+
+          if (routingModeMap[mode] === 'TRANSIT' && transitBadges.length > 0) {
+             summary = transitBadges.map(b => b.shortName).join(' → ');
           }
 
           return {
             durationMinutes: Math.ceil(durationSeconds / 60),
             summary: summary,
-            encodedPolyline: route.polyline?.encodedPolyline || '',
+            steps: steps,
             transitBadges: transitBadges.length > 0 ? transitBadges : undefined
           };
         });
@@ -364,7 +379,6 @@ export function DayPlan() {
           durationMinutes: bestRoute.durationMinutes,
           routeAlternatives: routeAlternatives,
           selectedRouteIndex: 0,
-          polyline: bestRoute.encodedPolyline,
         });
       } else {
         throw new Error("No route found");

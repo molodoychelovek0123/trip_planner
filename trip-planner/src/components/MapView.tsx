@@ -148,28 +148,61 @@ export function MapView() {
       const current = dayPlan[i];
       const segment = current.travelFromPrevious;
 
-      let path: any[] = [];
+      if (segment && segment.routeAlternatives && segment.routeAlternatives.length > 0) {
+        const selectedRoute = segment.routeAlternatives[segment.selectedRouteIndex || 0];
 
-      if (segment && segment.polyline && (window as any).google.maps.geometry?.encoding) {
-        // Use decoded polyline for actual street routes
-        path = (window as any).google.maps.geometry.encoding.decodePath(segment.polyline);
-      } else {
-        // Fallback to straight line (geodesic) if no route calculated or geometry library not loaded
-        path = [
-          { lat: prev.lat, lng: prev.lng },
-          { lat: current.lat, lng: current.lng }
-        ];
+        if (selectedRoute.steps && selectedRoute.steps.length > 0 && (window as any).google.maps.geometry?.encoding) {
+          // Draw each step individually
+          selectedRoute.steps.forEach((step) => {
+            const path = (window as any).google.maps.geometry.encoding.decodePath(step.encodedPolyline);
+            const isWalk = step.travelMode === 'WALK';
+
+            const polylineOptions: any = {
+              path: path,
+              geodesic: true,
+              map: map,
+              strokeWeight: 4,
+            };
+
+            if (isWalk) {
+              polylineOptions.strokeOpacity = 0;
+              polylineOptions.icons = [{
+                icon: {
+                  path: 'M 0,-1 0,1',
+                  strokeOpacity: 1,
+                  scale: 2,
+                  strokeColor: '#9CA3AF' // Gray for walk
+                },
+                offset: '0',
+                repeat: '10px'
+              }];
+            } else {
+              polylineOptions.strokeColor = step.color || '#3B82F6'; // Use line color or default blue
+              polylineOptions.strokeOpacity = 0.8;
+            }
+
+            const polyline = new (window as any).google.maps.Polyline(polylineOptions);
+            polylinesRef.current.push(polyline);
+          });
+          continue; // Skip fallback
+        }
       }
 
-      const polyline = new (window as any).google.maps.Polyline({
-        path: path,
+      // Fallback to straight line (geodesic) if no route calculated or geometry library not loaded
+      const fallbackPath = [
+        { lat: prev.lat, lng: prev.lng },
+        { lat: current.lat, lng: current.lng }
+      ];
+
+      const fallbackPolyline = new (window as any).google.maps.Polyline({
+        path: fallbackPath,
         geodesic: true,
         strokeColor: '#60A5FA', // Tailwind blue-400
         strokeOpacity: 0.8,
         strokeWeight: 4,
         map: map
       });
-      polylinesRef.current.push(polyline);
+      polylinesRef.current.push(fallbackPolyline);
     }
 
     if (hasPoints) {

@@ -18,10 +18,16 @@ export interface TransitBadge {
   textColor: string;
 }
 
+export interface RouteStep {
+  travelMode: string; // 'WALK', 'TRANSIT', 'DRIVE'
+  encodedPolyline: string;
+  color?: string; // Used for transit lines, default to gray for walk, blue for drive
+}
+
 export interface RouteAlternative {
   durationMinutes: number;
   summary: string;
-  encodedPolyline: string;
+  steps: RouteStep[];
   transitBadges?: TransitBadge[];
 }
 
@@ -30,7 +36,6 @@ export interface TravelSegment {
   mode: 'DRIVING' | 'WALKING' | 'TRANSIT';
   routeAlternatives?: RouteAlternative[];
   selectedRouteIndex?: number;
-  polyline?: string; // the encoded polyline of the selected route
 }
 
 export interface DayPlanPlace extends Place {
