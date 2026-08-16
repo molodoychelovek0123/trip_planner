@@ -36,6 +36,9 @@ export function MapView() {
     let isMounted = true;
 
     importLibrary('maps').then((mapsLibrary) => {
+      // Import geometry library for decoding polylines
+      importLibrary('geometry').catch(err => console.error("Failed to load geometry library", err));
+
       if (!isMounted) return;
 
       const newMap = new mapsLibrary.Map(mapRef.current as HTMLElement, {
@@ -140,9 +143,26 @@ export function MapView() {
     });
 
     // Draw route polylines
-    if (routeCoordinates.length > 1) {
+    for (let i = 1; i < dayPlan.length; i++) {
+      const prev = dayPlan[i - 1];
+      const current = dayPlan[i];
+      const segment = current.travelFromPrevious;
+
+      let path: any[] = [];
+
+      if (segment && segment.polyline && (window as any).google.maps.geometry?.encoding) {
+        // Use decoded polyline for actual street routes
+        path = (window as any).google.maps.geometry.encoding.decodePath(segment.polyline);
+      } else {
+        // Fallback to straight line (geodesic) if no route calculated or geometry library not loaded
+        path = [
+          { lat: prev.lat, lng: prev.lng },
+          { lat: current.lat, lng: current.lng }
+        ];
+      }
+
       const polyline = new (window as any).google.maps.Polyline({
-        path: routeCoordinates,
+        path: path,
         geodesic: true,
         strokeColor: '#60A5FA', // Tailwind blue-400
         strokeOpacity: 0.8,

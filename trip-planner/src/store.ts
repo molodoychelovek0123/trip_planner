@@ -11,9 +11,18 @@ export interface Place {
   recommendedDuration: number; // in minutes
 }
 
+export interface RouteAlternative {
+  durationMinutes: number;
+  summary: string;
+  encodedPolyline: string;
+}
+
 export interface TravelSegment {
-  durationMinutes: number; // calculated travel time from the previous point
+  durationMinutes: number; // dynamically matches the selected alternative
   mode: 'DRIVING' | 'WALKING' | 'TRANSIT';
+  routeAlternatives?: RouteAlternative[];
+  selectedRouteIndex?: number;
+  polyline?: string; // the encoded polyline of the selected route
 }
 
 export interface DayPlanPlace extends Place {

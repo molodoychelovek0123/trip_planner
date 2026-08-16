@@ -74,22 +74,46 @@ function SortablePlaceItem({
           <div className="absolute left-1/2 -ml-px w-0.5 h-full bg-gray-200" aria-hidden="true"></div>
           <div className="relative z-10 bg-white px-4 py-2 border rounded-full text-sm flex items-center gap-3 shadow-sm">
             {place.travelFromPrevious ? (
-              <>
-                <span className="text-gray-600 font-medium">
-                  {place.travelFromPrevious.durationMinutes} min
-                </span>
-                <div className="flex gap-1 text-gray-400">
-                   {place.travelFromPrevious.mode === 'DRIVING' && <Car className="w-4 h-4 text-blue-500" />}
-                   {place.travelFromPrevious.mode === 'WALKING' && <Footprints className="w-4 h-4 text-green-500" />}
-                   {place.travelFromPrevious.mode === 'TRANSIT' && <Bus className="w-4 h-4 text-orange-500" />}
+              <div className="flex flex-col items-center">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-600 font-medium">
+                    {place.travelFromPrevious.durationMinutes} min
+                  </span>
+                  <div className="flex gap-1 text-gray-400">
+                     {place.travelFromPrevious.mode === 'DRIVING' && <Car className="w-4 h-4 text-blue-500" />}
+                     {place.travelFromPrevious.mode === 'WALKING' && <Footprints className="w-4 h-4 text-green-500" />}
+                     {place.travelFromPrevious.mode === 'TRANSIT' && <Bus className="w-4 h-4 text-orange-500" />}
+                  </div>
+                  <button
+                    className="text-xs text-gray-400 hover:text-gray-600 underline ml-2"
+                    onClick={() => updateTravelSegment(activeDayId, place.uniqueId, undefined)}
+                  >
+                    Recalculate
+                  </button>
                 </div>
-                <button
-                  className="text-xs text-gray-400 hover:text-gray-600 underline ml-2"
-                  onClick={() => updateTravelSegment(activeDayId, place.uniqueId, undefined)}
-                >
-                  Recalculate
-                </button>
-              </>
+                {place.travelFromPrevious.routeAlternatives && place.travelFromPrevious.routeAlternatives.length > 1 && (
+                  <select
+                    className="mt-1 text-xs border border-gray-200 rounded text-gray-600 bg-gray-50 focus:ring-blue-500 focus:border-blue-500"
+                    value={place.travelFromPrevious.selectedRouteIndex || 0}
+                    onChange={(e) => {
+                       const selectedIndex = parseInt(e.target.value, 10);
+                       const selectedRoute = place.travelFromPrevious!.routeAlternatives![selectedIndex];
+                       updateTravelSegment(activeDayId, place.uniqueId, {
+                         ...place.travelFromPrevious,
+                         durationMinutes: selectedRoute.durationMinutes,
+                         selectedRouteIndex: selectedIndex,
+                         polyline: selectedRoute.encodedPolyline,
+                       });
+                    }}
+                  >
+                    {place.travelFromPrevious.routeAlternatives.map((alt, idx) => (
+                      <option key={idx} value={idx}>
+                        {alt.summary} ({alt.durationMinutes} min)
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
             ) : (
               <div className="flex items-center gap-2">
                  <span className="text-gray-500 text-xs mr-2">Calculate path:</span>
@@ -215,6 +239,7 @@ export function DayPlan() {
         origin: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } },
         destination: { location: { latLng: { latitude: destination.lat, longitude: destination.lng } } },
         travelMode: routingModeMap[mode],
+        computeAlternativeRoutes: true,
       };
 
       if (routingModeMap[mode] === 'DRIVE') {
@@ -226,7 +251,7 @@ export function DayPlan() {
         headers: {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
-          'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters'
+          'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.description,routes.legs.steps.transitDetails.transitLine.name,routes.legs.steps.transitDetails.transitLine.vehicle.name'
         },
         body: JSON.stringify(requestBody)
       });
@@ -237,13 +262,49 @@ export function DayPlan() {
 
       const data = await response.json();
 
-      if (data.routes && data.routes.length > 0 && data.routes[0].duration) {
-        // duration is a string like "1500s"
-        const durationSeconds = parseInt(data.routes[0].duration.replace('s', ''), 10);
-        const durationMinutes = Math.ceil(durationSeconds / 60);
+      if (data.routes && data.routes.length > 0) {
+        const routeAlternatives = data.routes.map((route: any, index: number) => {
+          const durationSeconds = parseInt(route.duration.replace('s', ''), 10);
+
+          let summary = route.description || `Option ${index + 1}`;
+
+          // If transit, try to build a better summary from transit lines
+          if (routingModeMap[mode] === 'TRANSIT' && route.legs) {
+             const lines: string[] = [];
+             route.legs.forEach((leg: any) => {
+               if (leg.steps) {
+                 leg.steps.forEach((step: any) => {
+                   if (step.transitDetails && step.transitDetails.transitLine) {
+                     const lineName = step.transitDetails.transitLine.name;
+                     const vehicle = step.transitDetails.transitLine.vehicle?.name;
+                     if (lineName) {
+                       lines.push(`${vehicle || 'Transit'} ${lineName}`);
+                     }
+                   }
+                 });
+               }
+             });
+             if (lines.length > 0) {
+               summary = lines.join(' → ');
+             }
+          }
+
+          return {
+            durationMinutes: Math.ceil(durationSeconds / 60),
+            summary: summary,
+            encodedPolyline: route.polyline?.encodedPolyline || '',
+          };
+        });
+
+        // Use the first alternative as default
+        const bestRoute = routeAlternatives[0];
+
         updateTravelSegment(activeDay.id, destination.uniqueId, {
           mode,
-          durationMinutes
+          durationMinutes: bestRoute.durationMinutes,
+          routeAlternatives: routeAlternatives,
+          selectedRouteIndex: 0,
+          polyline: bestRoute.encodedPolyline,
         });
       } else {
         throw new Error("No route found");
