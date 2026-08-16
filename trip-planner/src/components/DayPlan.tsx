@@ -367,18 +367,17 @@ export function DayPlan() {
         destination: { location: { latLng: { latitude: destination.lat, longitude: destination.lng } } },
         travelMode: routingModeMap[mode],
         computeAlternativeRoutes: true,
+        "X-Goog-FieldMask": 'routes.duration,routes.distanceMeters,routes.description,routes.legs.steps.travelMode,routes.legs.steps.polyline.encodedPolyline,routes.legs.steps.transitDetails.transitLine.name,routes.legs.steps.transitDetails.transitLine.color,routes.legs.steps.transitDetails.transitLine.textColor,routes.legs.steps.transitDetails.transitLine.vehicle.type'
       };
 
       if (routingModeMap[mode] === 'DRIVE') {
          requestBody.routingPreference = 'TRAFFIC_UNAWARE';
       }
 
-      const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/routes/compute`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
-          'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.description,routes.legs.steps.travelMode,routes.legs.steps.polyline.encodedPolyline,routes.legs.steps.transitDetails.transitLine.name,routes.legs.steps.transitDetails.transitLine.color,routes.legs.steps.transitDetails.transitLine.textColor,routes.legs.steps.transitDetails.transitLine.vehicle.type'
         },
         body: JSON.stringify(requestBody)
       });

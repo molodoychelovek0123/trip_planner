@@ -5,6 +5,7 @@
 
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import type { PersistStorage } from 'zustand/middleware'
 import { v4 as uuidv4 } from 'uuid'
 
 /**
@@ -244,6 +245,38 @@ export const useTripStore = create<TripState>()(
     }),
     {
       name: 'trip-planner-storage', // name of item in localStorage
+      storage: ((): PersistStorage<TripState> => {
+        let timeoutId: any;
+        const MOCK_TRIP_ID = 'default-trip-id'; // Use a fixed trip ID for now
+
+        return {
+          getItem: (name) => {
+            const str = localStorage.getItem(name);
+            if (!str) return null;
+            return JSON.parse(str);
+          },
+          setItem: (name, value) => {
+            // First, update local storage immediately for fast reloads
+            localStorage.setItem(name, JSON.stringify(value));
+
+            // Then, debounce the sync to the backend
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+            }
+
+            timeoutId = setTimeout(() => {
+              fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/trips/${MOCK_TRIP_ID}`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(value.state)
+              }).catch(err => console.error("Failed to sync state to backend:", err));
+            }, 1000); // 1-second debounce
+          },
+          removeItem: (name) => localStorage.removeItem(name),
+        }
+      })(),
     }
   )
 )

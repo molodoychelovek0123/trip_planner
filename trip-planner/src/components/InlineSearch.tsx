@@ -31,11 +31,10 @@ export function InlineSearch() {
     const fetchSuggestions = async () => {
       try {
         // Use Places API New (Autocomplete) REST endpoint
-        const response = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/places/autocomplete`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
           },
           body: JSON.stringify({
             input: debouncedQuery,
@@ -60,11 +59,7 @@ export function InlineSearch() {
 
     // Fetch place details using Places API New (Place Details) REST endpoint
     try {
-      const response = await fetch(`https://places.googleapis.com/v1/places/${placeId}?fields=id,displayName,location`, {
-        headers: {
-          'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
-        }
-      });
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/places/${placeId}`);
 
       if (!response.ok) throw new Error("Place Details API failed");
 
