@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useTripStore, type DayPlanPlace } from '../store';
-import { Car, Footprints, Bus, Clock, Plus, Trash2, GripVertical } from 'lucide-react';
+import { useTripStore, type DayPlanPlace, type RouteAlternative } from '../store';
+import { Car, Footprints, Bus, Clock, Plus, Trash2, GripVertical, Train } from 'lucide-react';
 import { SmartSuggestions } from './SmartSuggestions';
 import { InlineSearch } from './InlineSearch';
 import {
@@ -67,51 +67,82 @@ function SortablePlaceItem({
   const departureMinutes = currentMinutes + place.userDuration;
   const departureTime = minutesToTime(departureMinutes);
 
+  const getVehicleIcon = (type: string) => {
+    if (type === 'SUBWAY' || type === 'TRAM' || type === 'METRO_RAIL' || type === 'HEAVY_RAIL') return <Train className="w-3 h-3 mr-0.5 inline-block" />;
+    return <Bus className="w-3 h-3 mr-0.5 inline-block" />;
+  };
+
+  const renderAlternativeBadge = (alt: RouteAlternative, isSelected: boolean, onClick: () => void) => (
+    <button
+      onClick={onClick}
+      className={`flex items-center text-xs px-2 py-1 rounded-md border transition-colors ${
+        isSelected ? 'bg-blue-50 border-blue-300 shadow-sm' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+      }`}
+    >
+      <span className={`font-medium mr-2 ${isSelected ? 'text-blue-700' : 'text-gray-600'}`}>{alt.durationMinutes} min</span>
+      {alt.transitBadges && alt.transitBadges.length > 0 ? (
+        <div className="flex items-center gap-1">
+          {alt.transitBadges.map((badge, idx) => (
+            <span
+              key={idx}
+              className="inline-flex items-center px-1.5 py-0.5 rounded font-bold whitespace-nowrap"
+              style={{ backgroundColor: badge.color, color: badge.textColor, fontSize: '0.65rem' }}
+            >
+              {getVehicleIcon(badge.vehicleType)}
+              {badge.shortName}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <span className="text-gray-500 max-w-[100px] truncate">{alt.summary}</span>
+      )}
+    </button>
+  );
+
   return (
     <div ref={setNodeRef} style={style} className="relative">
       {index > 0 && (
         <div className="flex items-center justify-center my-2 relative">
           <div className="absolute left-1/2 -ml-px w-0.5 h-full bg-gray-200" aria-hidden="true"></div>
-          <div className="relative z-10 bg-white px-4 py-2 border rounded-full text-sm flex items-center gap-3 shadow-sm">
+          <div className="relative z-10 bg-white p-2 border rounded-xl text-sm flex flex-col items-center gap-2 shadow-sm min-w-[200px]">
             {place.travelFromPrevious ? (
-              <div className="flex flex-col items-center">
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-600 font-medium">
-                    {place.travelFromPrevious.durationMinutes} min
-                  </span>
-                  <div className="flex gap-1 text-gray-400">
-                     {place.travelFromPrevious.mode === 'DRIVING' && <Car className="w-4 h-4 text-blue-500" />}
-                     {place.travelFromPrevious.mode === 'WALKING' && <Footprints className="w-4 h-4 text-green-500" />}
-                     {place.travelFromPrevious.mode === 'TRANSIT' && <Bus className="w-4 h-4 text-orange-500" />}
+              <div className="flex flex-col w-full">
+                <div className="flex items-center justify-between px-2 mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-700 font-semibold">
+                      {place.travelFromPrevious.durationMinutes} min
+                    </span>
+                    <div className="flex gap-1 text-gray-400">
+                       {place.travelFromPrevious.mode === 'DRIVING' && <Car className="w-4 h-4 text-blue-500" />}
+                       {place.travelFromPrevious.mode === 'WALKING' && <Footprints className="w-4 h-4 text-green-500" />}
+                       {place.travelFromPrevious.mode === 'TRANSIT' && <Bus className="w-4 h-4 text-orange-500" />}
+                    </div>
                   </div>
                   <button
-                    className="text-xs text-gray-400 hover:text-gray-600 underline ml-2"
+                    className="text-xs text-blue-500 hover:text-blue-700 underline"
                     onClick={() => updateTravelSegment(activeDayId, place.uniqueId, undefined)}
                   >
-                    Recalculate
+                    Change mode
                   </button>
                 </div>
+
                 {place.travelFromPrevious.routeAlternatives && place.travelFromPrevious.routeAlternatives.length > 1 && (
-                  <select
-                    className="mt-1 text-xs border border-gray-200 rounded text-gray-600 bg-gray-50 focus:ring-blue-500 focus:border-blue-500"
-                    value={place.travelFromPrevious.selectedRouteIndex || 0}
-                    onChange={(e) => {
-                       const selectedIndex = parseInt(e.target.value, 10);
-                       const selectedRoute = place.travelFromPrevious!.routeAlternatives![selectedIndex];
-                       updateTravelSegment(activeDayId, place.uniqueId, {
-                         ...place.travelFromPrevious,
-                         durationMinutes: selectedRoute.durationMinutes,
-                         selectedRouteIndex: selectedIndex,
-                         polyline: selectedRoute.encodedPolyline,
-                       });
-                    }}
-                  >
-                    {place.travelFromPrevious.routeAlternatives.map((alt, idx) => (
-                      <option key={idx} value={idx}>
-                        {alt.summary} ({alt.durationMinutes} min)
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex flex-wrap gap-1 mt-1 justify-center bg-gray-50 p-1 rounded-lg">
+                    {place.travelFromPrevious.routeAlternatives.map((alt, idx) =>
+                      renderAlternativeBadge(
+                        alt,
+                        (place.travelFromPrevious!.selectedRouteIndex || 0) === idx,
+                        () => {
+                          updateTravelSegment(activeDayId, place.uniqueId, {
+                            ...place.travelFromPrevious,
+                            durationMinutes: alt.durationMinutes,
+                            selectedRouteIndex: idx,
+                            polyline: alt.encodedPolyline,
+                          });
+                        }
+                      )
+                    )}
+                  </div>
                 )}
               </div>
             ) : (
@@ -251,7 +282,7 @@ export function DayPlan() {
         headers: {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
-          'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.description,routes.legs.steps.transitDetails.transitLine.name,routes.legs.steps.transitDetails.transitLine.vehicle.name'
+          'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.description,routes.legs.steps.transitDetails.transitLine.name,routes.legs.steps.transitDetails.transitLine.shortName,routes.legs.steps.transitDetails.transitLine.color,routes.legs.steps.transitDetails.transitLine.textColor,routes.legs.steps.transitDetails.transitLine.vehicle.type'
         },
         body: JSON.stringify(requestBody)
       });
@@ -267,25 +298,27 @@ export function DayPlan() {
           const durationSeconds = parseInt(route.duration.replace('s', ''), 10);
 
           let summary = route.description || `Option ${index + 1}`;
+          let transitBadges: any[] = [];
 
-          // If transit, try to build a better summary from transit lines
+          // If transit, build badges from transit details
           if (routingModeMap[mode] === 'TRANSIT' && route.legs) {
-             const lines: string[] = [];
              route.legs.forEach((leg: any) => {
                if (leg.steps) {
                  leg.steps.forEach((step: any) => {
                    if (step.transitDetails && step.transitDetails.transitLine) {
-                     const lineName = step.transitDetails.transitLine.name;
-                     const vehicle = step.transitDetails.transitLine.vehicle?.name;
-                     if (lineName) {
-                       lines.push(`${vehicle || 'Transit'} ${lineName}`);
-                     }
+                     const line = step.transitDetails.transitLine;
+                     transitBadges.push({
+                        vehicleType: line.vehicle?.type || 'BUS',
+                        shortName: line.shortName || line.name || '',
+                        color: line.color || '#3B82F6', // Default blue
+                        textColor: line.textColor || '#FFFFFF', // Default white
+                     });
                    }
                  });
                }
              });
-             if (lines.length > 0) {
-               summary = lines.join(' → ');
+             if (transitBadges.length > 0) {
+               summary = transitBadges.map(b => b.shortName).join(' → ');
              }
           }
 
@@ -293,6 +326,7 @@ export function DayPlan() {
             durationMinutes: Math.ceil(durationSeconds / 60),
             summary: summary,
             encodedPolyline: route.polyline?.encodedPolyline || '',
+            transitBadges: transitBadges.length > 0 ? transitBadges : undefined
           };
         });
 

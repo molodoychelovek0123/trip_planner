@@ -11,10 +11,18 @@ export interface Place {
   recommendedDuration: number; // in minutes
 }
 
+export interface TransitBadge {
+  vehicleType: string;
+  shortName: string;
+  color: string;
+  textColor: string;
+}
+
 export interface RouteAlternative {
   durationMinutes: number;
   summary: string;
   encodedPolyline: string;
+  transitBadges?: TransitBadge[];
 }
 
 export interface TravelSegment {
