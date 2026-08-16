@@ -42,12 +42,16 @@ export interface DayPlanPlace extends Place {
   userDuration: number;
   travelFromPrevious?: TravelSegment;
   uniqueId: string; // Unique ID for drag and drop since the same place can potentially be added multiple times
+  lockedArrivalTime?: string; // HH:MM format if the user explicitly sets an arrival time
 }
 
 export interface DayData {
   id: string;
   startTime: string; // HH:MM format, default "09:00"
   plan: DayPlanPlace[];
+  startHotelId?: string; // ID of the place in Triplist used as start hotel
+  endHotelId?: string;   // ID of the place in Triplist used as end hotel
+  endHotelTravel?: TravelSegment; // Route from the last plan point to the end hotel
 }
 
 const defaultPlaces: Place[] = [
@@ -67,6 +71,8 @@ interface TripState {
   addDay: () => void;
   removeDay: (dayId: string) => void;
   setDayStartTime: (dayId: string, time: string) => void;
+  setStartHotel: (dayId: string, hotelId: string | undefined) => void;
+  setEndHotel: (dayId: string, hotelId: string | undefined) => void;
 
   // Triplist Actions
   addToTriplist: (place: Place) => void;
@@ -78,6 +84,8 @@ interface TripState {
   reorderDayPlan: (dayId: string, newPlan: DayPlanPlace[]) => void;
   updatePlaceDuration: (dayId: string, uniqueId: string, duration: number) => void;
   updateTravelSegment: (dayId: string, uniqueId: string, segment: TravelSegment | undefined) => void;
+  updateEndHotelTravel: (dayId: string, segment: TravelSegment | undefined) => void;
+  updateLockedArrivalTime: (dayId: string, uniqueId: string, time: string | undefined) => void;
 }
 
 export const useTripStore = create<TripState>()(
@@ -111,6 +119,22 @@ export const useTripStore = create<TripState>()(
 
       setDayStartTime: (dayId, time) => set((state) => ({
         days: state.days.map(d => d.id === dayId ? { ...d, startTime: time } : d)
+      })),
+
+      setStartHotel: (dayId, hotelId) => set((state) => ({
+        days: state.days.map(d => {
+          if (d.id !== dayId) return d;
+          // Invalidate first step's travel if hotel changes
+          const newPlan = [...d.plan];
+          if (newPlan.length > 0) {
+            newPlan[0] = { ...newPlan[0], travelFromPrevious: undefined };
+          }
+          return { ...d, startHotelId: hotelId, plan: newPlan };
+        })
+      })),
+
+      setEndHotel: (dayId, hotelId) => set((state) => ({
+        days: state.days.map(d => d.id === dayId ? { ...d, endHotelId: hotelId, endHotelTravel: undefined } : d)
       })),
 
       addToTriplist: (place) => set((state) => {
@@ -174,6 +198,20 @@ export const useTripStore = create<TripState>()(
           return {
             ...d,
             plan: d.plan.map(p => p.uniqueId === uniqueId ? { ...p, travelFromPrevious: segment } : p)
+          };
+        })
+      })),
+
+      updateEndHotelTravel: (dayId, segment) => set((state) => ({
+        days: state.days.map(d => d.id === dayId ? { ...d, endHotelTravel: segment } : d)
+      })),
+
+      updateLockedArrivalTime: (dayId, uniqueId, time) => set((state) => ({
+        days: state.days.map(d => {
+          if (d.id !== dayId) return d;
+          return {
+            ...d,
+            plan: d.plan.map(p => p.uniqueId === uniqueId ? { ...p, lockedArrivalTime: time } : p)
           };
         })
       }))

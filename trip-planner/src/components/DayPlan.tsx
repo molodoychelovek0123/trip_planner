@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTripStore, type DayPlanPlace, type RouteAlternative } from '../store';
-import { Car, Footprints, Bus, Clock, Plus, Trash2, GripVertical } from 'lucide-react';
+import { Car, Footprints, Bus, Clock, Plus, Trash2, GripVertical, Hotel, AlertCircle } from 'lucide-react';
 import { SmartSuggestions } from './SmartSuggestions';
 import { InlineSearch } from './InlineSearch';
 import {
@@ -29,6 +29,8 @@ function SortablePlaceItem({
   index,
   activeDayId,
   currentMinutes,
+  projectedArrivalMinutes,
+  updateLockedArrivalTime,
   minutesToTime,
   removeFromDayPlan,
   updatePlaceDuration,
@@ -40,6 +42,8 @@ function SortablePlaceItem({
   index: number;
   activeDayId: string;
   currentMinutes: number;
+  projectedArrivalMinutes: number;
+  updateLockedArrivalTime: (dayId: string, uniqueId: string, time: string | undefined) => void;
   minutesToTime: (m: number) => string;
   removeFromDayPlan: (dayId: string, uniqueId: string) => void;
   updatePlaceDuration: (dayId: string, uniqueId: string, duration: number) => void;
@@ -66,6 +70,9 @@ function SortablePlaceItem({
   const arrivalTime = minutesToTime(currentMinutes);
   const departureMinutes = currentMinutes + place.userDuration;
   const departureTime = minutesToTime(departureMinutes);
+
+  const freeTimeMinutes = currentMinutes - projectedArrivalMinutes;
+  const isLate = projectedArrivalMinutes > currentMinutes && place.lockedArrivalTime;
 
   const getVehicleIcon = (type: string) => {
     switch (type.toUpperCase()) {
@@ -127,7 +134,8 @@ function SortablePlaceItem({
 
   return (
     <div ref={setNodeRef} style={style} className="relative">
-      {index > 0 && (
+      {/* Travel Block */}
+      {(index > 0 || place.travelFromPrevious) && (
         <div className="flex items-center justify-center my-2 relative">
           <div className="absolute left-1/2 -ml-px w-0.5 h-full bg-gray-200" aria-hidden="true"></div>
           <div className="relative z-10 bg-white p-2 border rounded-xl text-sm flex flex-col items-center gap-2 shadow-sm min-w-[200px]">
@@ -189,6 +197,15 @@ function SortablePlaceItem({
         </div>
       )}
 
+      {freeTimeMinutes > 0 && (
+        <div className="flex items-center justify-center my-1 relative">
+          <div className="absolute left-1/2 -ml-px w-0.5 h-full bg-gray-200" aria-hidden="true"></div>
+          <div className="relative z-10 bg-green-50 px-3 py-1 border border-green-200 rounded-full text-xs text-green-700 shadow-sm">
+            Free time: {freeTimeMinutes} min
+          </div>
+        </div>
+      )}
+
       <div className="border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition-shadow relative group flex flex-col">
         <div className="flex">
           <div
@@ -202,8 +219,22 @@ function SortablePlaceItem({
             <div className="flex justify-between">
               <div>
                 <div className="font-semibold text-lg text-gray-800">{place.name}</div>
-                <div className="text-sm text-gray-500 font-mono mt-1">
-                  {arrivalTime} - {departureTime}
+                <div className="flex items-center gap-2 mt-1">
+                  <div className={`flex items-center text-sm font-mono border rounded px-1.5 py-0.5 ${place.lockedArrivalTime ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'}`}>
+                    <input
+                      type="time"
+                      value={place.lockedArrivalTime || arrivalTime}
+                      onChange={(e) => updateLockedArrivalTime(activeDayId, place.uniqueId, e.target.value || undefined)}
+                      className="bg-transparent border-none focus:ring-0 p-0 text-sm w-12"
+                    />
+                  </div>
+                  <span className="text-gray-500 font-mono">— {departureTime}</span>
+                  {isLate && (
+                    <div className="flex items-center text-red-500 text-xs font-medium ml-2 bg-red-50 px-1.5 py-0.5 rounded border border-red-200" title={`Projected arrival: ${minutesToTime(projectedArrivalMinutes)}`}>
+                      <AlertCircle className="w-3 h-3 mr-1" />
+                      Late
+                    </div>
+                  )}
                 </div>
               </div>
               <button
@@ -234,7 +265,7 @@ function SortablePlaceItem({
 
 // --- Main DayPlan Component ---
 export function DayPlan() {
-  const { days, activeDayId, setActiveDay, addDay, removeDay, setDayStartTime, updatePlaceDuration, removeFromDayPlan, updateTravelSegment, reorderDayPlan } = useTripStore();
+  const { triplist, days, activeDayId, setActiveDay, addDay, removeDay, setDayStartTime, updatePlaceDuration, removeFromDayPlan, updateTravelSegment, reorderDayPlan, setStartHotel, setEndHotel, updateEndHotelTravel, updateLockedArrivalTime } = useTripStore();
   const [calculatingId, setCalculatingId] = useState<string | null>(null);
 
   const activeDay = days.find(d => d.id === activeDayId) || days[0];
@@ -277,10 +308,23 @@ export function DayPlan() {
       return;
     }
 
-    const origin = dayPlan[index - 1];
-    const destination = dayPlan[index];
+    let origin, destination, isEndHotel = false;
 
-    setCalculatingId(destination.uniqueId);
+    if (index === -1) {
+       // End hotel calculation
+       origin = dayPlan[dayPlan.length - 1];
+       const hotel = triplist.find(p => p.id === activeDay.endHotelId);
+       if (!hotel) return;
+       destination = hotel;
+       isEndHotel = true;
+       setCalculatingId('end-hotel');
+    } else {
+       // Normal segment
+       origin = index === 0 ? triplist.find(p => p.id === activeDay.startHotelId) : dayPlan[index - 1];
+       destination = dayPlan[index];
+       if (!origin || !destination) return;
+       setCalculatingId(destination.uniqueId);
+    }
 
     try {
       // Use the new Google Routes API (REST via fetch)
@@ -374,12 +418,18 @@ export function DayPlan() {
         // Use the first alternative as default
         const bestRoute = routeAlternatives[0];
 
-        updateTravelSegment(activeDay.id, destination.uniqueId, {
+        const segmentData = {
           mode,
           durationMinutes: bestRoute.durationMinutes,
           routeAlternatives: routeAlternatives,
           selectedRouteIndex: 0,
-        });
+        };
+
+        if (isEndHotel) {
+          updateEndHotelTravel(activeDay.id, segmentData);
+        } else {
+          updateTravelSegment(activeDay.id, (destination as DayPlanPlace).uniqueId, segmentData);
+        }
       } else {
         throw new Error("No route found");
       }
@@ -387,10 +437,12 @@ export function DayPlan() {
       console.error("Directions request failed", error);
       const manualTime = window.prompt(`API failed. Enter estimated travel time in minutes:`, "15");
       if (manualTime && !isNaN(Number(manualTime))) {
-         updateTravelSegment(activeDay.id, destination.uniqueId, {
-          mode,
-          durationMinutes: Number(manualTime)
-        });
+        const fallbackData = { mode, durationMinutes: Number(manualTime) };
+        if (isEndHotel) {
+           updateEndHotelTravel(activeDay.id, fallbackData as any);
+        } else {
+           updateTravelSegment(activeDay.id, (destination as DayPlanPlace).uniqueId, fallbackData as any);
+        }
       }
     } finally {
       setCalculatingId(null);
@@ -469,6 +521,22 @@ export function DayPlan() {
         </div>
       </div>
 
+      <div className="mb-4">
+        <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center">
+          <Hotel className="w-3 h-3 mr-1" /> Start Hotel
+        </label>
+        <select
+          className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white"
+          value={activeDay.startHotelId || ''}
+          onChange={(e) => setStartHotel(activeDay.id, e.target.value || undefined)}
+        >
+          <option value="">(No start hotel selected)</option>
+          {triplist.map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+      </div>
+
       {dayPlan.length === 0 ? (
         <div className="text-center py-12 text-gray-500 border-2 border-dashed border-gray-200 rounded-lg">
           <p>No places added yet.</p>
@@ -487,11 +555,23 @@ export function DayPlan() {
             <div className="space-y-4">
               {dayPlan.map((place, index) => {
                 // Calculate time for this specific render pass
+                let travelTime = 0;
                 if (index > 0) {
-                   currentMinutes += place.travelFromPrevious?.durationMinutes || 0;
+                   travelTime = place.travelFromPrevious?.durationMinutes || 0;
+                } else if (index === 0 && activeDay.startHotelId) {
+                   travelTime = place.travelFromPrevious?.durationMinutes || 0;
                 }
 
-                const arrivalMinutes = currentMinutes;
+                currentMinutes += travelTime;
+
+                const projectedArrival = currentMinutes;
+
+                if (place.lockedArrivalTime) {
+                   const lockedMins = timeToMinutes(place.lockedArrivalTime);
+                   currentMinutes = lockedMins; // Unconditionally lock time to prevent cascading shifts
+                }
+
+                const actualArrival = currentMinutes;
                 const departureMinutes = currentMinutes + place.userDuration;
 
                 currentMinutes = departureMinutes;
@@ -502,19 +582,85 @@ export function DayPlan() {
                     place={place}
                     index={index}
                     activeDayId={activeDay.id}
-                    currentMinutes={arrivalMinutes}
+                    currentMinutes={actualArrival}
+                    projectedArrivalMinutes={projectedArrival}
                     minutesToTime={minutesToTime}
                     removeFromDayPlan={removeFromDayPlan}
                     updatePlaceDuration={updatePlaceDuration}
                     updateTravelSegment={updateTravelSegment}
                     calculateTravelTime={calculateTravelTime}
                     calculatingId={calculatingId}
+                    updateLockedArrivalTime={updateLockedArrivalTime}
                   />
                 );
               })}
             </div>
           </SortableContext>
         </DndContext>
+      )}
+
+      {dayPlan.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-gray-200">
+          <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center">
+            <Hotel className="w-3 h-3 mr-1" /> End Hotel
+          </label>
+          <div className="flex gap-2">
+            <select
+              className="flex-1 text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white"
+              value={activeDay.endHotelId || ''}
+              onChange={(e) => setEndHotel(activeDay.id, e.target.value || undefined)}
+            >
+              <option value="">(No end hotel selected)</option>
+              {triplist.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {activeDay.endHotelId && (
+            <div className="mt-3 flex items-center justify-center relative">
+              <div className="absolute left-1/2 -ml-px w-0.5 h-full bg-gray-200" aria-hidden="true"></div>
+              <div className="relative z-10 bg-white p-2 border rounded-xl text-sm flex flex-col items-center gap-2 shadow-sm min-w-[200px]">
+                {activeDay.endHotelTravel ? (
+                  <div className="flex flex-col w-full">
+                    <div className="flex items-center justify-between px-2 mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-700 font-semibold">
+                          {activeDay.endHotelTravel.durationMinutes} min
+                        </span>
+                        <div className="flex gap-1 text-gray-400">
+                           {activeDay.endHotelTravel.mode === 'DRIVING' && <Car className="w-4 h-4 text-blue-500" />}
+                           {activeDay.endHotelTravel.mode === 'WALKING' && <Footprints className="w-4 h-4 text-green-500" />}
+                           {activeDay.endHotelTravel.mode === 'TRANSIT' && <Bus className="w-4 h-4 text-orange-500" />}
+                        </div>
+                      </div>
+                      <button
+                        className="text-xs text-blue-500 hover:text-blue-700 underline"
+                        onClick={() => updateEndHotelTravel(activeDay.id, undefined)}
+                      >
+                        Change mode
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                     <span className="text-gray-500 text-xs mr-2">Go to hotel:</span>
+                     <button onClick={() => calculateTravelTime(-1, 'DRIVING')} className="p-1 hover:bg-gray-100 rounded text-blue-600" disabled={calculatingId === 'end-hotel'}>
+                       <Car className="w-4 h-4" />
+                     </button>
+                     <button onClick={() => calculateTravelTime(-1, 'WALKING')} className="p-1 hover:bg-gray-100 rounded text-green-600" disabled={calculatingId === 'end-hotel'}>
+                       <Footprints className="w-4 h-4" />
+                     </button>
+                     <button onClick={() => calculateTravelTime(-1, 'TRANSIT')} className="p-1 hover:bg-gray-100 rounded text-orange-600" disabled={calculatingId === 'end-hotel'}>
+                       <Bus className="w-4 h-4" />
+                     </button>
+                     {calculatingId === 'end-hotel' && <span className="text-xs text-gray-400 animate-pulse">...</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       <InlineSearch />
