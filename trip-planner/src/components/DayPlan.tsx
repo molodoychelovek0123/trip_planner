@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTripStore, type DayPlanPlace, type RouteAlternative } from '../store';
-import { Car, Footprints, Bus, Clock, Plus, Trash2, GripVertical, Hotel, AlertCircle } from 'lucide-react';
+import { Car, Footprints, Bus, Clock, Plus, Trash2, GripVertical, Hotel, AlertCircle, LockOpen, Lock } from 'lucide-react';
 import { SmartSuggestions } from './SmartSuggestions';
 import { InlineSearch } from './InlineSearch';
 import {
@@ -28,6 +28,7 @@ function SortablePlaceItem({
   place,
   index,
   activeDayId,
+  startHotelId,
   currentMinutes,
   projectedArrivalMinutes,
   updateLockedArrivalTime,
@@ -41,6 +42,7 @@ function SortablePlaceItem({
   place: DayPlanPlace;
   index: number;
   activeDayId: string;
+  startHotelId?: string;
   currentMinutes: number;
   projectedArrivalMinutes: number;
   updateLockedArrivalTime: (dayId: string, uniqueId: string, time: string | undefined) => void;
@@ -135,7 +137,7 @@ function SortablePlaceItem({
   return (
     <div ref={setNodeRef} style={style} className="relative">
       {/* Travel Block */}
-      {(index > 0 || place.travelFromPrevious) && (
+      {(index > 0 || (index === 0 && startHotelId)) && (
         <div className="flex items-center justify-center my-2 relative">
           <div className="absolute left-1/2 -ml-px w-0.5 h-full bg-gray-200" aria-hidden="true"></div>
           <div className="relative z-10 bg-white p-2 border rounded-xl text-sm flex flex-col items-center gap-2 shadow-sm min-w-[200px]">
@@ -220,14 +222,33 @@ function SortablePlaceItem({
               <div>
                 <div className="font-semibold text-lg text-gray-800">{place.name}</div>
                 <div className="flex items-center gap-2 mt-1">
-                  <div className={`flex items-center text-sm font-mono border rounded px-1.5 py-0.5 ${place.lockedArrivalTime ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'}`}>
-                    <input
-                      type="time"
-                      value={place.lockedArrivalTime || arrivalTime}
-                      onChange={(e) => updateLockedArrivalTime(activeDayId, place.uniqueId, e.target.value || undefined)}
-                      className="bg-transparent border-none focus:ring-0 p-0 text-sm w-12"
-                    />
-                  </div>
+                  {place.lockedArrivalTime ? (
+                    <div className="flex items-center text-sm font-mono border border-blue-500 bg-blue-50 text-blue-700 rounded px-1.5 py-0.5">
+                      <input
+                        type="time"
+                        value={place.lockedArrivalTime}
+                        onChange={(e) => updateLockedArrivalTime(activeDayId, place.uniqueId, e.target.value || undefined)}
+                        className="bg-transparent border-none focus:ring-0 p-0 text-sm w-12"
+                      />
+                      <button
+                        onClick={() => updateLockedArrivalTime(activeDayId, place.uniqueId, undefined)}
+                        className="ml-1 text-blue-400 hover:text-blue-600 focus:outline-none"
+                        title="Unlock auto-calculation"
+                      >
+                        <Lock className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      className="flex items-center text-sm font-mono text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded px-1.5 py-0.5 transition-colors group"
+                      onClick={() => updateLockedArrivalTime(activeDayId, place.uniqueId, arrivalTime)}
+                      title="Click to lock this arrival time"
+                    >
+                      {arrivalTime}
+                      <LockOpen className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </button>
+                  )}
+
                   <span className="text-gray-500 font-mono">— {departureTime}</span>
                   {isLate && (
                     <div className="flex items-center text-red-500 text-xs font-medium ml-2 bg-red-50 px-1.5 py-0.5 rounded border border-red-200" title={`Projected arrival: ${minutesToTime(projectedArrivalMinutes)}`}>
@@ -582,6 +603,7 @@ export function DayPlan() {
                     place={place}
                     index={index}
                     activeDayId={activeDay.id}
+                    startHotelId={activeDay.startHotelId}
                     currentMinutes={actualArrival}
                     projectedArrivalMinutes={projectedArrival}
                     minutesToTime={minutesToTime}
