@@ -203,20 +203,50 @@ export function DayPlan() {
     setCalculatingId(destination.uniqueId);
 
     try {
-      const directionsService = new (window as any).google.maps.DirectionsService();
+      // Use the new Google Routes API (REST via fetch)
+      // https://developers.google.com/maps/documentation/routes/compute_route_directions
+      const routingModeMap: Record<string, string> = {
+        'DRIVING': 'DRIVE',
+        'WALKING': 'WALK',
+        'TRANSIT': 'TRANSIT',
+      };
 
-      const response = await directionsService.route({
-        origin: { lat: origin.lat, lng: origin.lng },
-        destination: { lat: destination.lat, lng: destination.lng },
-        travelMode: (window as any).google.maps.TravelMode[mode],
+      const requestBody: any = {
+        origin: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } },
+        destination: { location: { latLng: { latitude: destination.lat, longitude: destination.lng } } },
+        travelMode: routingModeMap[mode],
+      };
+
+      if (routingModeMap[mode] === 'DRIVE') {
+         requestBody.routingPreference = 'TRAFFIC_UNAWARE';
+      }
+
+      const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+          'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters'
+        },
+        body: JSON.stringify(requestBody)
       });
 
-      if (response.routes[0]?.legs[0]?.duration?.value) {
-        const durationMinutes = Math.ceil(response.routes[0].legs[0].duration.value / 60);
+      if (!response.ok) {
+        throw new Error(`Routes API Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.routes && data.routes.length > 0 && data.routes[0].duration) {
+        // duration is a string like "1500s"
+        const durationSeconds = parseInt(data.routes[0].duration.replace('s', ''), 10);
+        const durationMinutes = Math.ceil(durationSeconds / 60);
         updateTravelSegment(activeDay.id, destination.uniqueId, {
           mode,
           durationMinutes
         });
+      } else {
+        throw new Error("No route found");
       }
     } catch (error) {
       console.error("Directions request failed", error);

@@ -2,17 +2,18 @@ import { useState, useRef, useEffect } from 'react';
 import { useTripStore } from '../store';
 import { v4 as uuidv4 } from 'uuid';
 import { MapPin, Search } from 'lucide-react';
-import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
+import { useDebounce } from '../utils/useDebounce';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
 export function InlineSearch() {
   const [inputValue, setInputValue] = useState('');
   const [isOpen, setIsOpen] = useState(false);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
-  const autocompleteRef = useRef<any>(null);
 
   const { addToDayPlan, addToTriplist, activeDayId } = useTripStore();
+  const debouncedQuery = useDebounce(inputValue, 300);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -22,54 +23,72 @@ export function InlineSearch() {
       return;
     }
 
-    setOptions({
-      key: GOOGLE_MAPS_API_KEY,
-      v: "weekly"
-    });
-
-    let isMounted = true;
-
-    importLibrary('places').then((placesLibrary) => {
-      if (!isMounted) return;
-      if (inputRef.current) {
-        autocompleteRef.current = new placesLibrary.Autocomplete(inputRef.current, {
-          fields: ['place_id', 'geometry', 'name']
-        });
-
-        autocompleteRef.current.addListener('place_changed', () => {
-          const place = autocompleteRef.current?.getPlace();
-          if (place && place.geometry && place.geometry.location) {
-            handlePlaceSelection(place);
-            setInputValue('');
-            setIsOpen(false);
-          }
-        });
-      }
-    }).catch((err: any) => {
-      console.error("Failed to load Google Maps Places API", err);
-    });
-
-    return () => {
-      isMounted = false;
-      if (autocompleteRef.current && (window as any).google) {
-         (window as any).google.maps.event.clearInstanceListeners(autocompleteRef.current);
-      }
+    if (!debouncedQuery) {
+      setSuggestions([]);
+      return;
     }
-  }, [isOpen]);
 
-  const handlePlaceSelection = (place: any) => {
-    if (!place.geometry?.location || !place.name || !activeDayId) return;
+    const fetchSuggestions = async () => {
+      try {
+        // Use Places API New (Autocomplete) REST endpoint
+        const response = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+          },
+          body: JSON.stringify({
+            input: debouncedQuery,
+            // optional parameters can be added here
+          })
+        });
 
-    const newPlace = {
-      id: place.place_id || uuidv4(),
-      name: place.name,
-      lat: place.geometry.location.lat(),
-      lng: place.geometry.location.lng(),
-      recommendedDuration: 30
+        if (!response.ok) throw new Error("Autocomplete API failed");
+
+        const data = await response.json();
+        setSuggestions(data.suggestions || []);
+      } catch (err) {
+        console.error("Failed to fetch suggestions", err);
+      }
     };
 
-    addToTriplist(newPlace);
-    addToDayPlan(activeDayId, newPlace);
+    fetchSuggestions();
+  }, [debouncedQuery, isOpen]);
+
+  const handlePlaceSelection = async (placeId: string, description: string) => {
+    if (!activeDayId || !GOOGLE_MAPS_API_KEY) return;
+
+    // Fetch place details using Places API New (Place Details) REST endpoint
+    try {
+      const response = await fetch(`https://places.googleapis.com/v1/places/${placeId}?fields=id,displayName,location`, {
+        headers: {
+          'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+        }
+      });
+
+      if (!response.ok) throw new Error("Place Details API failed");
+
+      const data = await response.json();
+
+      if (data && data.location) {
+        const newPlace = {
+          id: data.id || uuidv4(),
+          name: data.displayName?.text || description,
+          lat: data.location.latitude,
+          lng: data.location.longitude,
+          recommendedDuration: 30
+        };
+
+        addToTriplist(newPlace);
+        addToDayPlan(activeDayId, newPlace);
+
+        setInputValue('');
+        setSuggestions([]);
+        setIsOpen(false);
+      }
+    } catch (err) {
+       console.error("Failed to fetch place details", err);
+    }
   };
 
   if (!isOpen) {
@@ -85,7 +104,7 @@ export function InlineSearch() {
   }
 
   return (
-    <div className="mt-4 p-4 border rounded-lg bg-gray-50 shadow-inner">
+    <div className="mt-4 p-4 border rounded-lg bg-gray-50 shadow-inner relative">
       <div className="relative">
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
           <MapPin className="h-4 w-4 text-gray-400" />
@@ -100,8 +119,27 @@ export function InlineSearch() {
           autoFocus
         />
       </div>
+
+      {suggestions.length > 0 && (
+        <ul className="absolute z-50 mt-1 w-[calc(100%-2rem)] bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto">
+          {suggestions.map((suggestion) => (
+            <li
+              key={suggestion.placePrediction.placeId}
+              onClick={() => handlePlaceSelection(suggestion.placePrediction.placeId, suggestion.placePrediction.text.text)}
+              className="px-4 py-2 hover:bg-gray-100 cursor-pointer text-sm text-gray-700"
+            >
+              {suggestion.placePrediction.text.text}
+            </li>
+          ))}
+        </ul>
+      )}
+
       <button
-        onClick={() => setIsOpen(false)}
+        onClick={() => {
+          setIsOpen(false);
+          setInputValue('');
+          setSuggestions([]);
+        }}
         className="mt-2 text-sm text-gray-500 hover:text-gray-700 w-full text-center"
       >
         Cancel
