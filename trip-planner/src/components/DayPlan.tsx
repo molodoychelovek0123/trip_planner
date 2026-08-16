@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTripStore, type DayPlanPlace, type RouteAlternative } from '../store';
-import { Car, Footprints, Bus, Clock, Plus, Trash2, GripVertical, Train } from 'lucide-react';
+import { Car, Footprints, Bus, Clock, Plus, Trash2, GripVertical } from 'lucide-react';
 import { SmartSuggestions } from './SmartSuggestions';
 import { InlineSearch } from './InlineSearch';
 import {
@@ -68,8 +68,34 @@ function SortablePlaceItem({
   const departureTime = minutesToTime(departureMinutes);
 
   const getVehicleIcon = (type: string) => {
-    if (type === 'SUBWAY' || type === 'TRAM' || type === 'METRO_RAIL' || type === 'HEAVY_RAIL') return <Train className="w-3 h-3 mr-0.5 inline-block" />;
-    return <Bus className="w-3 h-3 mr-0.5 inline-block" />;
+    switch (type.toUpperCase()) {
+      case 'SUBWAY':
+      case 'METRO_RAIL':
+        return <span className="mr-0.5">🚇</span>;
+      case 'TRAM':
+        return <span className="mr-0.5">🚋</span>;
+      case 'TROLLEYBUS':
+        return <span className="mr-0.5">🚎</span>;
+      case 'BUS':
+      case 'INTERCITY_BUS':
+        return <span className="mr-0.5">🚌</span>;
+      case 'COMMUTER_TRAIN':
+      case 'HEAVY_RAIL':
+      case 'HIGH_SPEED_TRAIN':
+      case 'RAIL':
+        return <span className="mr-0.5">🚆</span>;
+      case 'FERRY':
+        return <span className="mr-0.5">⛴️</span>;
+      case 'CABLE_CAR':
+      case 'GONDOLA':
+        return <span className="mr-0.5">🚠</span>;
+      case 'FUNICULAR':
+        return <span className="mr-0.5">🚞</span>;
+      case 'MONORAIL':
+        return <span className="mr-0.5">🚝</span>;
+      default:
+        return <span className="mr-0.5">🚌</span>; // fallback
+    }
   };
 
   const renderAlternativeBadge = (alt: RouteAlternative, isSelected: boolean, onClick: () => void) => (
