@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTripStore } from '../store';
 import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
+import { MapContextMenu } from './MapContextMenu';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
@@ -10,7 +11,16 @@ export function MapView() {
   const markersRef = useRef<any[]>([]);
   const polylinesRef = useRef<any[]>([]);
 
-  const { dayPlan, triplist } = useTripStore();
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState({
+    isOpen: false,
+    position: { x: 0, y: 0 },
+    latLng: null as { lat: number, lng: number } | null
+  });
+
+  const { days, activeDayId, triplist } = useTripStore();
+  const activeDay = days.find(d => d.id === activeDayId) || days[0];
+  const dayPlan = activeDay.plan;
 
   useEffect(() => {
     if (!GOOGLE_MAPS_API_KEY) {
@@ -37,12 +47,31 @@ export function MapView() {
       });
 
       setMap(newMap);
+
+      // Add right-click listener
+      newMap.addListener('contextmenu', (e: any) => {
+        if (e.latLng && e.pixel) {
+           setContextMenu({
+             isOpen: true,
+             position: { x: e.pixel.x, y: e.pixel.y },
+             latLng: { lat: e.latLng.lat(), lng: e.latLng.lng() }
+           });
+        }
+      });
+
+      // Close context menu on click or drag
+      newMap.addListener('click', () => setContextMenu(prev => ({ ...prev, isOpen: false })));
+      newMap.addListener('dragstart', () => setContextMenu(prev => ({ ...prev, isOpen: false })));
+
     }).catch(err => {
       console.error("Failed to load map:", err);
     });
 
     return () => {
       isMounted = false;
+      if (map) {
+         (window as any).google.maps.event.clearInstanceListeners(map);
+      }
     };
   }, []);
 
@@ -142,6 +171,14 @@ export function MapView() {
   return (
     <div className="w-full h-full relative">
       <div ref={mapRef} className="w-full h-full bg-gray-200" />
+
+      <MapContextMenu
+        isOpen={contextMenu.isOpen}
+        position={contextMenu.position}
+        latLng={contextMenu.latLng}
+        onClose={() => setContextMenu(prev => ({ ...prev, isOpen: false }))}
+      />
+
       {!GOOGLE_MAPS_API_KEY && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-200 bg-opacity-80">
           <div className="bg-white p-4 rounded-lg shadow-md text-center">

@@ -53,25 +53,15 @@ export function Triplist() {
       name: place.name,
       lat: place.geometry.location.lat(),
       lng: place.geometry.location.lng(),
-      defaultDuration: 60 // BR-1: default duration
+      recommendedDuration: 30
     });
   };
 
   const handleManualAdd = (e: React.FormEvent) => {
     e.preventDefault();
+    // Manual add without coordinates is disabled as per user request
     if (!inputValue.trim()) return;
-
-    if (!GOOGLE_MAPS_API_KEY) {
-      // Fallback manual add if no API key
-      addToTriplist({
-        id: uuidv4(),
-        name: inputValue.trim(),
-        lat: 0,
-        lng: 0,
-        defaultDuration: 60
-      });
-      setInputValue('');
-    }
+    setError("Please select a place from the dropdown to ensure accurate routing.");
   };
 
   return (
@@ -93,14 +83,6 @@ export function Triplist() {
               className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
             />
           </div>
-          {!GOOGLE_MAPS_API_KEY && (
-            <button
-              type="submit"
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Add
-            </button>
-          )}
         </div>
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
       </form>
@@ -111,14 +93,19 @@ export function Triplist() {
         ) : (
           <ul className="divide-y divide-gray-200">
             {triplist.map((place) => (
-              <li key={place.id} className="py-3 flex justify-between items-center group">
+              <li key={place.id} className="py-3 flex justify-between items-center group border-b border-gray-100 last:border-b-0">
                 <div>
                   <p className="text-sm font-medium text-gray-900">{place.name}</p>
-                  <p className="text-xs text-gray-500">{place.defaultDuration} min</p>
+                  <p className="text-xs text-gray-500">{place.recommendedDuration} min</p>
                 </div>
                 <div className="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    onClick={() => useTripStore.getState().addToDayPlan(place)}
+                    onClick={() => {
+                      const store = useTripStore.getState();
+                      if (store.activeDayId) {
+                        store.addToDayPlan(store.activeDayId, place);
+                      }
+                    }}
                     className="text-blue-500 hover:text-blue-700 text-sm font-medium"
                   >
                     Add to Plan
