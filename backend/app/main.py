@@ -26,17 +26,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def log_event(db: Session, event_type: str, data: dict):
-    event = models.EventLog(event_type=event_type, data_json=json.dumps(data))
-    db.add(event)
-    db.commit()
+def log_event(event_type: str, data: dict):
+    """
+    Logs an event asynchronously to the event_logs table for metric tracking.
+    This creates its own DB session so it can run safely in a BackgroundTask
+    after the main request session has closed.
+
+    Args:
+        event_type (str): The category of the event (e.g., 'places_autocomplete', 'trip_synced').
+        data (dict): A dictionary of context/metadata to be stored as a JSON string.
+    """
+    from .database import SessionLocal
+    db = SessionLocal()
+    try:
+        event = models.EventLog(event_type=event_type, data_json=json.dumps(data))
+        db.add(event)
+        db.commit()
+    finally:
+        db.close()
 
 @app.post("/api/places/autocomplete")
 async def places_autocomplete(request: dict, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """
+    Proxy endpoint for Google Maps Places API Autocomplete.
+
+    This fulfills the requirement to obscure the API key from the client and allows us
+    to track search metric usage. It directly forwards the payload to Google.
+
+    Args:
+        request (dict): The JSON body containing the 'input' string.
+    """
     if not GOOGLE_MAPS_API_KEY:
         raise HTTPException(status_code=500, detail="Google Maps API Key not configured")
 
-    background_tasks.add_task(log_event, db, "places_autocomplete", {"input": request.get("input")})
+    background_tasks.add_task(log_event, "places_autocomplete", {"input": request.get("input")})
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
@@ -51,10 +74,21 @@ async def places_autocomplete(request: dict, background_tasks: BackgroundTasks, 
 
 @app.get("/api/places/{place_id}")
 async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """
+    Retrieves detailed information about a specific Place by its Google Place ID.
+
+    This implements Algorithmic Caching (BR-1). It first checks if the Place exists in
+    the local PostgreSQL database. If it does, it returns it instantly, costing $0.
+    If it misses the cache, it fetches from Google Places API (New), saves the result
+    to the database, and then returns it.
+
+    Args:
+        place_id (str): The unique Google Place ID.
+    """
     # 1. Check our database cache
-    cached_place = db.query(models.Place).filter(models.Place.google_place_id == place_id).first()
+    cached_place = db.query(models.Place).filter(models.Place.id == place_id).first()
     if cached_place:
-        background_tasks.add_task(log_event, db, "place_added", {"place_id": place_id, "source": "cache"})
+        background_tasks.add_task(log_event, "place_added", {"place_id": place_id, "source": "cache"})
         return {
             "id": place_id,
             "displayName": {"text": cached_place.name},
@@ -78,6 +112,7 @@ async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Sessio
         # 3. Save to database cache
         if "location" in data:
             new_place = models.Place(
+                id=place_id,
                 google_place_id=data.get("id"),
                 name=data.get("displayName", {}).get("text", "Unknown"),
                 lat=data.get("location", {}).get("latitude"),
@@ -85,7 +120,7 @@ async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Sessio
             )
             db.add(new_place)
             db.commit()
-            background_tasks.add_task(log_event, db, "place_added", {"place_id": place_id, "source": "api"})
+            background_tasks.add_task(log_event, "place_added", {"place_id": place_id, "source": "api"})
 
         return data
 
@@ -94,6 +129,12 @@ async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Sessio
 
 @app.post("/api/trips")
 async def create_trip(request: dict, db: Session = Depends(get_db)):
+    """
+    Creates a new Trip associated with a User.
+
+    Currently implements a mock authentication system for demonstration,
+    associating all new trips with 'test-user-id'.
+    """
     # Mock user ID for now
     user_id = "test-user-id"
     user = db.query(models.User).filter(models.User.id == user_id).first()
@@ -113,6 +154,18 @@ async def create_trip(request: dict, db: Session = Depends(get_db)):
 
 @app.patch("/api/trips/{trip_id}")
 async def update_trip(trip_id: str, request: dict, db: Session = Depends(get_db)):
+    """
+    Synchronizes the full trip state (Days and Items) from the frontend to the backend.
+
+    This endpoint is called by the frontend's debounced Zustand storage engine (BR-4).
+    It performs a naive sync by clearing existing Days and Items for the trip, then
+    re-inserting the fresh state. It handles foreign key dependencies by generating
+    dummy Place records if a specific place_id hasn't been cached yet.
+
+    Args:
+        trip_id (str): The UUID of the trip being updated.
+        request (dict): The serialized Zustand state containing the 'days' array.
+    """
     # Basic implementation of syncing trip_days and trip_items to DB
 
     trip = db.query(models.Trip).filter(models.Trip.id == trip_id).first()
@@ -132,6 +185,15 @@ async def update_trip(trip_id: str, request: dict, db: Session = Depends(get_db)
         day_id = day_data.get('id')
         start_hotel = day_data.get('startHotel')
         end_hotel = day_data.get('endHotel')
+
+        # Ensure start/end hotels exist to satisfy FK
+        for hotel in [start_hotel, end_hotel]:
+            if hotel and hotel.get('id'):
+                hotel_place_id = hotel.get('id')
+                if not db.query(models.Place).filter(models.Place.id == hotel_place_id).first():
+                    dummy_hotel = models.Place(id=hotel_place_id, google_place_id=f"dummy_{hotel_place_id}", name="Synced Hotel", lat=0.0, lng=0.0)
+                    db.add(dummy_hotel)
+                    db.commit()
 
         day_model = models.TripDay(
             id=day_id,
@@ -165,11 +227,25 @@ async def update_trip(trip_id: str, request: dict, db: Session = Depends(get_db)
              db.add(item_model)
 
     db.commit()
-    log_event(db, "trip_synced", {"trip_id": trip_id, "size_bytes": len(json.dumps(request))})
+    # Need to run synchronously inside view to access db if not using background task wrapper
+    event = models.EventLog(event_type="trip_synced", data_json=json.dumps({"trip_id": trip_id, "size_bytes": len(json.dumps(request))}))
+    db.add(event)
+    db.commit()
     return {"status": "success"}
 
 @app.post("/api/routes/compute")
 async def compute_routes(request: dict, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """
+    Proxy endpoint for Google Routes API v2 with Time-to-Live (TTL) caching.
+
+    Implements BR-1 (Cost Management). It generates a cache key based on the origin,
+    destination, and travel mode. It checks the `route_cache` table for a valid cached
+    route generated within the last 24 hours. On a cache miss, it fetches from Google
+    Routes API, serializes the JSON response, and stores it in the database.
+
+    Args:
+        request (dict): The JSON payload containing origin, destination, and travelMode.
+    """
     # Simplified cache key logic: origin, dest, routing_preference
     origin_id = request.get("origin", {}).get("placeId")
     dest_id = request.get("destination", {}).get("placeId")
@@ -190,7 +266,7 @@ async def compute_routes(request: dict, background_tasks: BackgroundTasks, db: S
         ).first()
 
         if cached_route:
-            background_tasks.add_task(log_event, db, "route_calculated", {"origin": origin_id, "dest": dest_id, "mode": mode, "source": "cache"})
+            background_tasks.add_task(log_event, "route_calculated", {"origin": origin_id, "dest": dest_id, "mode": mode, "source": "cache"})
             return json.loads(cached_route.data_json)
 
     # 2. Fetch from Google
@@ -229,6 +305,6 @@ async def compute_routes(request: dict, background_tasks: BackgroundTasks, db: S
             )
             db.add(new_cache)
             db.commit()
-            background_tasks.add_task(log_event, db, "route_calculated", {"origin": origin_id, "dest": dest_id, "mode": mode, "source": "api"})
+            background_tasks.add_task(log_event, "route_calculated", {"origin": origin_id, "dest": dest_id, "mode": mode, "source": "api"})
 
         return data

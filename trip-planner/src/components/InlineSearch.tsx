@@ -55,7 +55,7 @@ export function InlineSearch() {
   }, [debouncedQuery, isOpen]);
 
   const handlePlaceSelection = async (placeId: string, description: string) => {
-    if (!activeDayId || !GOOGLE_MAPS_API_KEY) return;
+    if (!activeDayId) return;
 
     // Fetch place details using Places API New (Place Details) REST endpoint
     try {
