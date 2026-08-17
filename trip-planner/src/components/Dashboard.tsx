@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { Plus, Copy, Trash2, Globe } from 'lucide-react';
+import { Plus, Copy, Trash2, Globe, Heart } from 'lucide-react';
 import { UserProfile } from './UserProfile';
 
 interface TripMeta {
@@ -114,6 +114,13 @@ export function Dashboard() {
         <div className="flex justify-between items-center mb-6">
             <h1 className="text-3xl font-bold text-gray-900">My Trips</h1>
             <div className="flex items-center space-x-4">
+              <button
+                onClick={() => navigate('/favorites')}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none"
+              >
+                <Heart className="mr-2 h-4 w-4 text-pink-500" />
+                Saved Places
+              </button>
               <button
                 onClick={handleCreate}
                 className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none"

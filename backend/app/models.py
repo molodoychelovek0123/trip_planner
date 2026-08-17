@@ -36,7 +36,26 @@ class Place(Base):
     lng = Column(Float)
     recommended_duration = Column(Integer, default=30)
     city = Column(String, nullable=True)
+    country = Column(String, nullable=True)
+    photo_reference = Column(String, nullable=True)
+    rating = Column(Float, nullable=True)
+    user_ratings_total = Column(Integer, nullable=True)
+    primary_type = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class FavoritePlace(Base):
+    """
+    Represents a user's saved point of interest (favorite).
+    Links a User to a Place in the global cache.
+    """
+    __tablename__ = "favorite_places"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id"))
+    place_id = Column(String, ForeignKey("places.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", backref="favorite_places")
+    place = relationship("Place", backref="favorited_by")
 
 class Trip(Base):
     """
@@ -65,6 +84,7 @@ class TripDay(Base):
     start_time = Column(String)
     start_hotel_place_id = Column(String, ForeignKey("places.id"), nullable=True)
     end_hotel_place_id = Column(String, ForeignKey("places.id"), nullable=True)
+    end_hotel_travel_json = Column(String, nullable=True)  # JSON-encoded TravelSegment back to the end hotel
 
     trip = relationship("Trip", back_populates="days")
     items = relationship("TripItem", back_populates="day")
@@ -81,6 +101,7 @@ class TripItem(Base):
     sort_order = Column(Integer)
     user_duration = Column(Integer)
     locked_arrival_time = Column(String, nullable=True)
+    travel_data_json = Column(String, nullable=True)  # JSON-encoded TravelSegment from previous place
 
     day = relationship("TripDay", back_populates="items")
 

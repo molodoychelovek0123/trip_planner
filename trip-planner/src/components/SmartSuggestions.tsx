@@ -14,12 +14,22 @@ export function SmartSuggestions({ readOnly = false }: { readOnly?: boolean }) {
 
   const lastPoint = dayPlan[dayPlan.length - 1];
 
-  // Filter out places already in the day plan
+  // Defensive check: the last point must have valid numeric coordinates,
+  // otherwise we cannot compute distances (e.g. stale cached data or
+  // partial server payloads where lat/lng may be undefined or NaN).
+  const hasValidLastPoint = lastPoint &&
+    typeof lastPoint.lat === 'number' && typeof lastPoint.lng === 'number' &&
+    Number.isFinite(lastPoint.lat) && Number.isFinite(lastPoint.lng);
+
+  // Filter out places already in the day plan and those without valid coordinates
   const availablePlaces = triplist.filter(
-    (place) => !dayPlan.some((dp) => dp.id === place.id)
+    (place) =>
+      !dayPlan.some((dp) => dp.id === place.id) &&
+      typeof place.lat === 'number' && typeof place.lng === 'number' &&
+      Number.isFinite(place.lat) && Number.isFinite(place.lng)
   );
 
-  if (availablePlaces.length === 0) {
+  if (!hasValidLastPoint || availablePlaces.length === 0) {
     return null;
   }
 

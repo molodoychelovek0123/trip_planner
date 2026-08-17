@@ -101,10 +101,18 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
     const bounds = new window.google.maps.LatLngBounds();
     let hasPoints = false;
 
+    // Defensive helper: only treat numbers as valid coordinates.
+    // Guards against stale cached data or partial server payloads where
+    // lat/lng may be undefined/null/NaN.
+    const hasValidCoords = (p: { lat?: number | null, lng?: number | null } | undefined): boolean =>
+      !!p && typeof p.lat === 'number' && typeof p.lng === 'number' &&
+      Number.isFinite(p.lat) && Number.isFinite(p.lng);
+
     // Add triplist markers (smaller, gray)
     triplist.forEach((place) => {
       // Skip if already in dayPlan
       if (dayPlan.some(p => p.id === place.id)) return;
+      if (!hasValidCoords(place)) return;
 
       const marker = new window.google.maps.Marker({
         position: { lat: place.lat, lng: place.lng },
@@ -124,12 +132,12 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
       hasPoints = true;
     });
 
-    // Add day plan markers (larger, numbered)
-    const routeCoordinates: { lat: number, lng: number }[] = [];
+    // Add day plan markers (larger, numbered).
+    // Filter out points without valid coordinates so Google Maps never
+    // receives undefined/NaN (which previously caused setPosition errors).
+    const validDayPlan = dayPlan.filter(hasValidCoords);
 
-    dayPlan.forEach((place, index) => {
-      routeCoordinates.push({ lat: place.lat, lng: place.lng });
-
+    validDayPlan.forEach((place, index) => {
       const marker = new window.google.maps.Marker({
         position: { lat: place.lat, lng: place.lng },
         map: mapInstance,
@@ -154,9 +162,9 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
     });
 
     // Draw route polylines
-    for (let i = 1; i < dayPlan.length; i++) {
-      const prev = dayPlan[i - 1];
-      const current = dayPlan[i];
+    for (let i = 1; i < validDayPlan.length; i++) {
+      const prev = validDayPlan[i - 1];
+      const current = validDayPlan[i];
       const segment = current.travelFromPrevious;
 
       if (segment && segment.routeAlternatives && segment.routeAlternatives.length > 0) {
@@ -217,9 +225,9 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
     }
 
     if (hasPoints) {
-      if (dayPlan.length === 1 && triplist.length === 0) {
+      if (validDayPlan.length === 1 && triplist.length === 0) {
         // If only one point, set center and zoom
-        mapInstance.setCenter({ lat: dayPlan[0].lat, lng: dayPlan[0].lng });
+        mapInstance.setCenter({ lat: validDayPlan[0].lat, lng: validDayPlan[0].lng });
         mapInstance.setZoom(14);
       } else {
         mapInstance.fitBounds(bounds);

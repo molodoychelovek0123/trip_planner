@@ -275,10 +275,96 @@ export const useTripStore = create<TripState>()(
             ? serverState.days
             : [{ id: uuidv4(), startTime: '09:00', plan: [] }];
 
+        // Lookup of existing (localStorage) days by id so we can preserve routes
+        // that the server did not return (e.g. old caches or partial payloads).
+        const localDayLookup = new Map<string, DayData>();
+        for (const d of (state.days || [])) {
+          if (d && typeof d.id === 'string') {
+            localDayLookup.set(d.id, d);
+          }
+        }
+
+        // Build a lookup of triplist places by id so we can enrich plan items
+        // that may be missing coordinates/name/city (e.g. old cached trips or
+        // responses where plan is not fully populated).
+        const triplistLookup = new Map<string, Place>();
+        for (const place of (serverState.triplist || [])) {
+          if (place && typeof place.id === 'string') {
+            triplistLookup.set(place.id, place);
+          }
+        }
+
+        const enrichedDays = days.map(day => {
+          if (!day || typeof day.id !== 'string') return day;
+          const localDay = localDayLookup.get(day.id);
+
+          // Normalize legacy hotel keys: old payloads used startHotel/endHotel
+          // objects, while DayData expects startHotelId/endHotelId strings.
+          const startHotelId = typeof day.startHotelId === 'string'
+            ? day.startHotelId
+            : (day as any).startHotel?.id;
+          const endHotelId = typeof day.endHotelId === 'string'
+            ? day.endHotelId
+            : (day as any).endHotel?.id;
+
+          // Preserve the end-hotel route from local state if the server omitted it.
+          const endHotelTravel = day.endHotelTravel
+            || (localDay && localDay.endHotelTravel)
+            || undefined;
+
+          if (!Array.isArray(day.plan)) {
+            return {
+              ...day,
+              startHotelId,
+              endHotelId,
+              endHotelTravel
+            };
+          }
+
+          // Lookup of local (localStorage) plan items by uniqueId to preserve
+          // travelFromPrevious routes the server did not return.
+          const localItemLookup = new Map<string, DayPlanPlace>();
+          if (localDay && Array.isArray(localDay.plan)) {
+            for (const lp of localDay.plan) {
+              if (lp && typeof lp.uniqueId === 'string') {
+                localItemLookup.set(lp.uniqueId, lp);
+              }
+            }
+          }
+
+          return {
+            ...day,
+            startHotelId,
+            endHotelId,
+            endHotelTravel,
+            plan: day.plan.map(item => {
+              if (!item || typeof item.id !== 'string') return item;
+              const triplistPlace = triplistLookup.get(item.id);
+              const localItem = typeof item.uniqueId === 'string' ? localItemLookup.get(item.uniqueId) : undefined;
+              return {
+                ...item,
+                // Preserve the route from local state if the server omitted it.
+                travelFromPrevious: item.travelFromPrevious
+                  || (localItem && localItem.travelFromPrevious)
+                  || undefined,
+                // Fill any missing place metadata from triplist (does not override
+                // explicit values already present on the item).
+                lat: typeof item.lat === 'number' ? item.lat : (triplistPlace?.lat ?? item.lat),
+                lng: typeof item.lng === 'number' ? item.lng : (triplistPlace?.lng ?? item.lng),
+                name: item.name ?? triplistPlace?.name,
+                city: item.city ?? triplistPlace?.city,
+                recommendedDuration: typeof item.recommendedDuration === 'number'
+                  ? item.recommendedDuration
+                  : (triplistPlace?.recommendedDuration ?? item.recommendedDuration)
+              } as DayPlanPlace;
+            })
+          };
+        });
+
         return {
           ...state,
           ...serverState,
-          days,
+          days: enrichedDays,
           activeDayId: serverState.activeDayId || days[0].id
         };
       })

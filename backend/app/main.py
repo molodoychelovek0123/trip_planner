@@ -224,7 +224,7 @@ async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Sessio
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"https://places.googleapis.com/v1/places/{place_id}?fields=id,displayName,location,addressComponents,types",
+            f"https://places.googleapis.com/v1/places/{place_id}?fields=id,displayName,location,addressComponents,types,photos,rating,userRatingCount",
             headers={"X-Goog-Api-Key": GOOGLE_MAPS_API_KEY}
         )
         if response.status_code != 200:
@@ -232,17 +232,22 @@ async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Sessio
 
         data = response.json()
 
-        # Determine city from addressComponents
+        # Determine city and country from addressComponents
         city = None
+        country = None
         components = data.get("addressComponents", [])
         for component in components:
-            if "locality" in component.get("types", []):
+            comp_types = component.get("types", [])
+            if "locality" in comp_types:
                 city = component.get("longText")
-                break
+            if "country" in comp_types:
+                country = component.get("longText")
 
         # Calculate smart recommendedDuration based on types
         recommended_duration = 30 # default
         types = data.get("types", [])
+        primary_type = types[0] if types else None
+
         if "museum" in types or "art_gallery" in types or "zoo" in types or "amusement_park" in types:
             recommended_duration = 120
         elif "park" in types or "tourist_attraction" in types or "church" in types or "place_of_worship" in types:
@@ -251,6 +256,11 @@ async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Sessio
             recommended_duration = 60
         elif "shopping_mall" in types or "department_store" in types:
             recommended_duration = 90
+            
+        photo_reference = None
+        photos = data.get("photos", [])
+        if photos:
+            photo_reference = photos[0].get("name")
 
         # 3. Save to database cache
         if "location" in data:
@@ -261,6 +271,11 @@ async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Sessio
                 lat=data.get("location", {}).get("latitude"),
                 lng=data.get("location", {}).get("longitude"),
                 city=city,
+                country=country,
+                rating=data.get("rating"),
+                user_ratings_total=data.get("userRatingCount"),
+                primary_type=primary_type,
+                photo_reference=photo_reference,
                 recommended_duration=recommended_duration
             )
             db.add(new_place)
@@ -334,31 +349,48 @@ def _serialize_trip(trip, db):
     # We need places for triplist
     place_ids = set()
 
+    raw_days = []
     for day in sorted(trip.days, key=lambda d: d.day_index):
-        plan_payload = []
-        for item in sorted(day.items, key=lambda i: i.sort_order):
+        items = sorted(day.items, key=lambda i: i.sort_order)
+        for item in items:
             place_ids.add(item.place_id)
-            plan_payload.append({
-                "id": item.place_id,
-                "uniqueId": item.id,
-                "userDuration": item.user_duration,
-                "lockedArrivalTime": item.locked_arrival_time
-            })
 
         if day.start_hotel_place_id:
             place_ids.add(day.start_hotel_place_id)
         if day.end_hotel_place_id:
             place_ids.add(day.end_hotel_place_id)
 
+        raw_days.append((day, items))
+
+    places = db.query(models.Place).filter(models.Place.id.in_(place_ids)).all()
+    place_lookup = {p.id: p for p in places}
+
+    for day, items in raw_days:
+        plan_payload = []
+        for item in items:
+            place = place_lookup.get(item.place_id)
+            plan_payload.append({
+                "id": item.place_id,
+                "uniqueId": item.id,
+                "userDuration": item.user_duration,
+                "lockedArrivalTime": item.locked_arrival_time,
+                "travelFromPrevious": json.loads(item.travel_data_json) if item.travel_data_json else None,
+                "lat": place.lat if place else None,
+                "lng": place.lng if place else None,
+                "name": place.name if place else None,
+                "city": place.city if place else None,
+                "recommendedDuration": place.recommended_duration if place else None
+            })
+
         days_payload.append({
             "id": day.id,
             "startTime": day.start_time,
             "plan": plan_payload,
-            "startHotel": {"id": day.start_hotel_place_id} if day.start_hotel_place_id else None,
-            "endHotel": {"id": day.end_hotel_place_id} if day.end_hotel_place_id else None
+            "startHotelId": day.start_hotel_place_id,
+            "endHotelId": day.end_hotel_place_id,
+            "endHotelTravel": json.loads(day.end_hotel_travel_json) if day.end_hotel_travel_json else None
         })
 
-    places = db.query(models.Place).filter(models.Place.id.in_(place_ids)).all()
     triplist = [
         {
             "id": p.id,
@@ -415,25 +447,26 @@ async def update_trip(trip_id: str, request: dict, current_user: models.User = D
     days_data = request.get('days', [])
     for index, day_data in enumerate(days_data):
         day_id = day_data.get('id')
-        start_hotel = day_data.get('startHotel')
-        end_hotel = day_data.get('endHotel')
+        start_hotel_id = day_data.get('startHotelId')
+        end_hotel_id = day_data.get('endHotelId')
 
         # Ensure start/end hotels exist to satisfy FK
-        for hotel in [start_hotel, end_hotel]:
-            if hotel and hotel.get('id'):
-                hotel_place_id = hotel.get('id')
+        for hotel_place_id in [start_hotel_id, end_hotel_id]:
+            if hotel_place_id:
                 if not db.query(models.Place).filter(models.Place.id == hotel_place_id).first():
                     dummy_hotel = models.Place(id=hotel_place_id, google_place_id=f"dummy_{hotel_place_id}", name="Synced Hotel", lat=0.0, lng=0.0)
                     db.add(dummy_hotel)
                     db.commit()
 
+        end_hotel_travel = day_data.get('endHotelTravel')
         day_model = models.TripDay(
             id=day_id,
             trip_id=trip_id,
             day_index=index,
             start_time=day_data.get('startTime', '09:00'),
-            start_hotel_place_id=start_hotel.get('id') if start_hotel else None,
-            end_hotel_place_id=end_hotel.get('id') if end_hotel else None
+            start_hotel_place_id=start_hotel_id,
+            end_hotel_place_id=end_hotel_id,
+            end_hotel_travel_json=json.dumps(end_hotel_travel) if end_hotel_travel else None
         )
         db.add(day_model)
 
@@ -448,13 +481,15 @@ async def update_trip(trip_id: str, request: dict, current_user: models.User = D
                  db.add(dummy_place)
                  db.commit()
 
+             travel = item_data.get('travelFromPrevious')
              item_model = models.TripItem(
                  id=item_data.get('uniqueId'),
                  day_id=day_id,
                  place_id=place_id,
                  sort_order=order,
                  user_duration=item_data.get('userDuration', 30),
-                 locked_arrival_time=item_data.get('lockedArrivalTime')
+                 locked_arrival_time=item_data.get('lockedArrivalTime'),
+                 travel_data_json=json.dumps(travel) if travel else None
              )
              db.add(item_model)
 
@@ -648,3 +683,141 @@ async def compute_routes(request: dict, background_tasks: BackgroundTasks, db: S
             background_tasks.add_task(log_event, "route_calculated", {"origin": origin_id, "dest": dest_id, "mode": mode, "source": "api"})
 
         return data
+
+
+# --- Favorites APIs ---
+
+@app.get("/api/favorites")
+async def get_favorites(current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Returns a list of favorite places for the current user.
+    """
+    favorites = db.query(models.FavoritePlace).filter(models.FavoritePlace.user_id == current_user.id).all()
+    
+    result = []
+    for fav in favorites:
+        p = fav.place
+        if p:
+            result.append({
+                "id": p.id,
+                "place_id": p.google_place_id,
+                "name": p.name,
+                "lat": p.lat,
+                "lng": p.lng,
+                "city": p.city,
+                "country": p.country,
+                "photo_reference": p.photo_reference,
+                "rating": p.rating,
+                "user_ratings_total": p.user_ratings_total,
+                "primary_type": p.primary_type,
+                "recommendedDuration": p.recommended_duration
+            })
+    return result
+
+@app.post("/api/favorites")
+async def add_favorite(request: dict, background_tasks: BackgroundTasks, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Adds a place to the user's favorites.
+    """
+    place_id = request.get("place_id")
+    if not place_id:
+        raise HTTPException(status_code=400, detail="place_id is required")
+
+    # 1. Check if place exists in DB
+    cached_place = db.query(models.Place).filter(models.Place.id == place_id).first()
+    
+    if not cached_place:
+        # Fetch from Google
+        if not GOOGLE_MAPS_API_KEY:
+            raise HTTPException(status_code=500, detail="Google Maps API Key not configured")
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://places.googleapis.com/v1/places/{place_id}?fields=id,displayName,location,addressComponents,types,photos,rating,userRatingCount",
+                headers={"X-Goog-Api-Key": GOOGLE_MAPS_API_KEY}
+            )
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+
+            data = response.json()
+
+            city = None
+            country = None
+            components = data.get("addressComponents", [])
+            for component in components:
+                comp_types = component.get("types", [])
+                if "locality" in comp_types:
+                    city = component.get("longText")
+                if "country" in comp_types:
+                    country = component.get("longText")
+
+            types = data.get("types", [])
+            primary_type = types[0] if types else None
+
+            recommended_duration = 30
+            if "museum" in types or "art_gallery" in types or "zoo" in types or "amusement_park" in types:
+                recommended_duration = 120
+            elif "park" in types or "tourist_attraction" in types or "church" in types or "place_of_worship" in types:
+                recommended_duration = 60
+            elif "restaurant" in types or "cafe" in types or "bar" in types:
+                recommended_duration = 60
+            elif "shopping_mall" in types or "department_store" in types:
+                recommended_duration = 90
+
+            photo_reference = None
+            photos = data.get("photos", [])
+            if photos:
+                photo_reference = photos[0].get("name")
+
+            if "location" in data:
+                cached_place = models.Place(
+                    id=place_id,
+                    google_place_id=data.get("id"),
+                    name=data.get("displayName", {}).get("text", "Unknown"),
+                    lat=data.get("location", {}).get("latitude"),
+                    lng=data.get("location", {}).get("longitude"),
+                    city=city,
+                    country=country,
+                    rating=data.get("rating"),
+                    user_ratings_total=data.get("userRatingCount"),
+                    primary_type=primary_type,
+                    photo_reference=photo_reference,
+                    recommended_duration=recommended_duration
+                )
+                db.add(cached_place)
+                db.commit()
+            else:
+                raise HTTPException(status_code=400, detail="Place has no location")
+
+    # 2. Add to favorites if not already added
+    existing_fav = db.query(models.FavoritePlace).filter(
+        models.FavoritePlace.user_id == current_user.id,
+        models.FavoritePlace.place_id == place_id
+    ).first()
+
+    if not existing_fav:
+        new_fav = models.FavoritePlace(
+            user_id=current_user.id,
+            place_id=place_id
+        )
+        db.add(new_fav)
+        db.commit()
+
+    return {"status": "success"}
+
+@app.delete("/api/favorites/{place_id}")
+async def remove_favorite(place_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Removes a place from the user's favorites.
+    """
+    fav = db.query(models.FavoritePlace).filter(
+        models.FavoritePlace.user_id == current_user.id,
+        models.FavoritePlace.place_id == place_id
+    ).first()
+    
+    if not fav:
+        raise HTTPException(status_code=404, detail="Favorite not found")
+        
+    db.delete(fav)
+    db.commit()
+    return {"status": "success"}
