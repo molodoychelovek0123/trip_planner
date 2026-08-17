@@ -41,6 +41,7 @@ export interface Place {
   lat: number;
   lng: number;
   recommendedDuration: number; // in minutes
+  city?: string; // e.g. "Paris"
 }
 
 /**
@@ -105,10 +106,10 @@ export interface DayData {
 }
 
 const defaultPlaces: Place[] = [
-  { id: 'eiffel', name: 'Eiffel Tower', lat: 48.8584, lng: 2.2945, recommendedDuration: 30 },
-  { id: 'louvre', name: 'Louvre Museum', lat: 48.8606, lng: 2.3376, recommendedDuration: 30 },
-  { id: 'notredame', name: 'Notre-Dame Cathedral', lat: 48.8529, lng: 2.3500, recommendedDuration: 30 },
-  { id: 'arcdetriomphe', name: 'Arc de Triomphe', lat: 48.8738, lng: 2.2950, recommendedDuration: 30 }
+  { id: 'eiffel', name: 'Eiffel Tower', lat: 48.8584, lng: 2.2945, recommendedDuration: 30, city: 'Paris' },
+  { id: 'louvre', name: 'Louvre Museum', lat: 48.8606, lng: 2.3376, recommendedDuration: 30, city: 'Paris' },
+  { id: 'notredame', name: 'Notre-Dame Cathedral', lat: 48.8529, lng: 2.3500, recommendedDuration: 30, city: 'Paris' },
+  { id: 'arcdetriomphe', name: 'Arc de Triomphe', lat: 48.8738, lng: 2.2950, recommendedDuration: 30, city: 'Paris' }
 ];
 
 interface TripState {

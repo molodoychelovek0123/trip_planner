@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTripStore } from '../store';
 import { v4 as uuidv4 } from 'uuid';
-import { MapPin } from 'lucide-react';
+import { MapPin, Bookmark } from 'lucide-react';
 import { useDebounce } from '../utils/useDebounce';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
@@ -15,48 +15,111 @@ export function Triplist({ readOnly = false }: { readOnly?: boolean }) {
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const { triplist, addToTriplist, removeFromTriplist, days, addToDayPlan } = useTripStore();
+  const { triplist, addToTriplist, removeFromTriplist, days, addToDayPlan, activeDayId } = useTripStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const debouncedQuery = useDebounce(inputValue, 300);
 
-  useEffect(() => {
-    if (!GOOGLE_MAPS_API_KEY) {
-      console.warn("Google Maps API Key is missing. Search won't work correctly.");
-      return;
-    }
+  // Smart filtering: determine current city from the last active plan item
+  let currentCity: string | undefined = undefined;
+  let referenceLat: number | undefined = undefined;
+  let referenceLng: number | undefined = undefined;
 
+  const activeDay = days.find(d => d.id === activeDayId);
+  if (activeDay) {
+    if (activeDay.plan.length > 0) {
+      const lastItem = activeDay.plan[activeDay.plan.length - 1];
+      currentCity = lastItem.city;
+      referenceLat = lastItem.lat;
+      referenceLng = lastItem.lng;
+    } else if (activeDay.startHotelId) {
+      const startHotel = triplist.find(p => p.id === activeDay.startHotelId);
+      if (startHotel) {
+        currentCity = startHotel.city;
+        referenceLat = startHotel.lat;
+        referenceLng = startHotel.lng;
+      }
+    }
+  }
+
+  // Filter and sort triplist
+  let displayTriplist = [...triplist];
+  if (currentCity) {
+    displayTriplist = displayTriplist.filter(p => !p.city || p.city === currentCity);
+    if (referenceLat !== undefined && referenceLng !== undefined) {
+      // Calculate distance for sorting
+      // We can reuse a simple haversine formula here or just simple distance squared since it's for relative sorting
+      const distSq = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+        return Math.pow(lat1 - lat2, 2) + Math.pow(lng1 - lng2, 2);
+      };
+      displayTriplist.sort((a, b) => distSq(referenceLat!, referenceLng!, a.lat, a.lng) - distSq(referenceLat!, referenceLng!, b.lat, b.lng));
+    }
+  }
+
+  useEffect(() => {
     if (!debouncedQuery) {
       setSuggestions([]);
       return;
     }
 
     const fetchSuggestions = async () => {
-      try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/places/autocomplete`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            input: debouncedQuery,
-          })
-        });
+      // 1. Search local triplist first
+      const queryLower = debouncedQuery.toLowerCase();
+      const localMatches = triplist.filter(p => p.name.toLowerCase().includes(queryLower));
 
-        if (!response.ok) throw new Error("Autocomplete API failed");
+      const formattedLocal = localMatches.map(p => ({
+         isLocal: true,
+         placeId: p.id,
+         description: p.name,
+         place: p // store full object
+      }));
 
-        const data = await response.json();
-        setSuggestions(data.suggestions || []);
-      } catch (err) {
-        console.error("Failed to fetch suggestions", err);
+      let apiSuggestions: any[] = [];
+
+      if (GOOGLE_MAPS_API_KEY) {
+        try {
+          const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/places/autocomplete`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              input: debouncedQuery,
+            })
+          });
+
+          if (response.ok) {
+              const data = await response.json();
+              apiSuggestions = (data.suggestions || []).map((s: any) => ({
+                 isLocal: false,
+                 placeId: s.placePrediction.placeId,
+                 description: s.placePrediction.text.text
+              }));
+          }
+        } catch (err) {
+          console.error("Failed to fetch API suggestions", err);
+        }
       }
+
+      // Merge and deduplicate by placeId (if the local one has the same Google Place ID, etc.)
+      const combined = [...formattedLocal, ...apiSuggestions];
+      const unique = combined.filter((v, i, a) => a.findIndex(t => t.placeId === v.placeId) === i);
+      setSuggestions(unique);
     };
 
     fetchSuggestions();
-  }, [debouncedQuery]);
+  }, [debouncedQuery, triplist]);
 
-  const handlePlaceSelection = async (placeId: string, description: string) => {
+  const handlePlaceSelection = async (suggestion: any) => {
+    if (suggestion.isLocal) {
+        // It's already in the triplist, maybe we just clear or show a message?
+        // Let's just clear the input
+        setInputValue('');
+        setSuggestions([]);
+        return;
+    }
+
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/places/${placeId}`);
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/places/${suggestion.placeId}`);
 
       if (!response.ok) throw new Error("Place Details API failed");
 
@@ -65,10 +128,11 @@ export function Triplist({ readOnly = false }: { readOnly?: boolean }) {
       if (data && data.location) {
         addToTriplist({
           id: data.id || uuidv4(),
-          name: data.displayName?.text || description,
+          name: data.displayName?.text || suggestion.description,
           lat: data.location.latitude,
           lng: data.location.longitude,
-          recommendedDuration: 30
+          recommendedDuration: data.recommendedDuration || 30,
+          city: data.city
         });
 
         setInputValue('');
@@ -118,11 +182,12 @@ export function Triplist({ readOnly = false }: { readOnly?: boolean }) {
           <ul className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto">
             {suggestions.map((suggestion) => (
               <li
-                key={suggestion.placePrediction.placeId}
-                onClick={() => handlePlaceSelection(suggestion.placePrediction.placeId, suggestion.placePrediction.text.text)}
-                className="px-4 py-2 hover:bg-gray-100 cursor-pointer text-sm text-gray-700 border-b border-gray-100 last:border-b-0"
+                key={suggestion.placeId}
+                onClick={() => handlePlaceSelection(suggestion)}
+                className="px-4 py-2 hover:bg-gray-100 cursor-pointer text-sm text-gray-700 border-b border-gray-100 last:border-b-0 flex items-center gap-2"
               >
-                {suggestion.placePrediction.text.text}
+                {suggestion.isLocal && <Bookmark className="w-3 h-3 text-blue-500" />}
+                {suggestion.description}
               </li>
             ))}
           </ul>
@@ -130,11 +195,17 @@ export function Triplist({ readOnly = false }: { readOnly?: boolean }) {
       </form>
 
       <div className="space-y-3">
-        {triplist.length === 0 ? (
-          <p className="text-gray-500 text-sm text-center py-4">No places added yet. Search for places to add them to your pool.</p>
+        {displayTriplist.length === 0 ? (
+          <p className="text-gray-500 text-sm text-center py-4">
+             {triplist.length === 0
+                ? "No places added yet. Search for places to add them to your pool."
+                : currentCity
+                    ? `Nothing saved in ${currentCity} yet.`
+                    : "No places match your criteria."}
+          </p>
         ) : (
           <ul className="divide-y divide-gray-200">
-            {triplist.map((place) => (
+            {displayTriplist.map((place) => (
               <li key={place.id} className="py-3 flex flex-col group border-b border-gray-100 last:border-b-0">
                 <div className="flex justify-between items-start">
                   <div>

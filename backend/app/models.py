@@ -35,6 +35,7 @@ class Place(Base):
     lat = Column(Float)
     lng = Column(Float)
     recommended_duration = Column(Integer, default=30)
+    city = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Trip(Base):
