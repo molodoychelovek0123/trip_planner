@@ -286,7 +286,7 @@ export const useTripStore = create<TripState>()(
     {
       name: 'trip-planner-storage', // dynamic key generated in getItem/setItem
       storage: ((): PersistStorage<TripState> => {
-        let timeoutId: any;
+        let timeoutId: ReturnType<typeof setTimeout>;
 
         const getStorageKey = (name: string) => {
           const tripId = useAuthStore.getState().activeTripId;

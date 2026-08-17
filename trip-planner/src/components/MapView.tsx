@@ -10,11 +10,15 @@ const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
  * Visualizes saved places (Triplist) as gray dots, and DayPlan places as numbered blue pins.
  * Decodes and renders multi-segment polylines for calculated routes.
  */
+interface ContextMenuMouseEvent extends google.maps.MapMouseEvent {
+  pixel?: { x: number; y: number };
+}
+
 export function MapView({ readOnly = false }: { readOnly?: boolean }) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const [map, setMap] = useState<any>(null);
-  const markersRef = useRef<any[]>([]);
-  const polylinesRef = useRef<any[]>([]);
+  const [map, setMap] = useState<google.maps.Map | null>(null);
+  const markersRef = useRef<google.maps.Marker[]>([]);
+  const polylinesRef = useRef<google.maps.Polyline[]>([]);
 
   // Context Menu State
   const [contextMenu, setContextMenu] = useState({
@@ -57,7 +61,7 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
       setMap(newMap);
 
       // Add right-click listener
-      newMap.addListener('contextmenu', (e: any) => {
+      newMap.addListener('contextmenu', (e: ContextMenuMouseEvent) => {
         if (readOnly) return;
         if (e.latLng && e.pixel) {
            setContextMenu({
@@ -79,13 +83,14 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
     return () => {
       isMounted = false;
       if (map) {
-         (window as any).google.maps.event.clearInstanceListeners(map);
+         window.google.maps.event.clearInstanceListeners(map);
       }
     };
   }, []);
 
   useEffect(() => {
-    if (!map || !(window as any).google) return;
+    if (!map || !window.google) return;
+    const mapInstance = map;
 
     // Clear existing markers and polylines
     markersRef.current.forEach(marker => marker.setMap(null));
@@ -93,7 +98,7 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
     polylinesRef.current.forEach(polyline => polyline.setMap(null));
     polylinesRef.current = [];
 
-    const bounds = new (window as any).google.maps.LatLngBounds();
+    const bounds = new window.google.maps.LatLngBounds();
     let hasPoints = false;
 
     // Add triplist markers (smaller, gray)
@@ -101,12 +106,12 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
       // Skip if already in dayPlan
       if (dayPlan.some(p => p.id === place.id)) return;
 
-      const marker = new (window as any).google.maps.Marker({
+      const marker = new window.google.maps.Marker({
         position: { lat: place.lat, lng: place.lng },
-        map: map,
+        map: mapInstance,
         title: place.name,
         icon: {
-          path: (window as any).google.maps.SymbolPath.CIRCLE,
+          path: window.google.maps.SymbolPath.CIRCLE,
           fillColor: '#9CA3AF', // Tailwind gray-400
           fillOpacity: 0.8,
           strokeColor: '#fff',
@@ -125,9 +130,9 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
     dayPlan.forEach((place, index) => {
       routeCoordinates.push({ lat: place.lat, lng: place.lng });
 
-      const marker = new (window as any).google.maps.Marker({
+      const marker = new window.google.maps.Marker({
         position: { lat: place.lat, lng: place.lng },
-        map: map,
+        map: mapInstance,
         title: place.name,
         label: {
           text: (index + 1).toString(),
@@ -135,7 +140,7 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
           fontWeight: 'bold',
         },
         icon: {
-          path: (window as any).google.maps.SymbolPath.CIRCLE,
+          path: window.google.maps.SymbolPath.CIRCLE,
           fillColor: '#3B82F6', // Tailwind blue-500
           fillOpacity: 1,
           strokeColor: '#fff',
@@ -157,16 +162,16 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
       if (segment && segment.routeAlternatives && segment.routeAlternatives.length > 0) {
         const selectedRoute = segment.routeAlternatives[segment.selectedRouteIndex || 0];
 
-        if (selectedRoute.steps && selectedRoute.steps.length > 0 && (window as any).google.maps.geometry?.encoding) {
+        if (selectedRoute.steps && selectedRoute.steps.length > 0 && window.google.maps.geometry?.encoding) {
           // Draw each step individually
           selectedRoute.steps.forEach((step) => {
-            const path = (window as any).google.maps.geometry.encoding.decodePath(step.encodedPolyline);
+            const path = window.google.maps.geometry.encoding.decodePath(step.encodedPolyline);
             const isWalk = step.travelMode === 'WALK';
 
-            const polylineOptions: any = {
+            const polylineOptions: google.maps.PolylineOptions = {
               path: path,
               geodesic: true,
-              map: map,
+              map: mapInstance,
               strokeWeight: 4,
             };
 
@@ -187,7 +192,7 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
               polylineOptions.strokeOpacity = 0.8;
             }
 
-            const polyline = new (window as any).google.maps.Polyline(polylineOptions);
+            const polyline = new window.google.maps.Polyline(polylineOptions);
             polylinesRef.current.push(polyline);
           });
           continue; // Skip fallback
@@ -200,13 +205,13 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
         { lat: current.lat, lng: current.lng }
       ];
 
-      const fallbackPolyline = new (window as any).google.maps.Polyline({
+      const fallbackPolyline = new window.google.maps.Polyline({
         path: fallbackPath,
         geodesic: true,
         strokeColor: '#60A5FA', // Tailwind blue-400
         strokeOpacity: 0.8,
         strokeWeight: 4,
-        map: map
+        map: mapInstance
       });
       polylinesRef.current.push(fallbackPolyline);
     }
@@ -214,14 +219,15 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
     if (hasPoints) {
       if (dayPlan.length === 1 && triplist.length === 0) {
         // If only one point, set center and zoom
-        map.setCenter({ lat: dayPlan[0].lat, lng: dayPlan[0].lng });
-        map.setZoom(14);
+        mapInstance.setCenter({ lat: dayPlan[0].lat, lng: dayPlan[0].lng });
+        mapInstance.setZoom(14);
       } else {
-        map.fitBounds(bounds);
+        mapInstance.fitBounds(bounds);
         // Prevent zooming in too much
-        const listener = (window as any).google.maps.event.addListener(map, 'idle', () => {
-          if (map.getZoom() > 15) map.setZoom(15);
-          (window as any).google.maps.event.removeListener(listener);
+        const listener = window.google.maps.event.addListener(mapInstance, 'idle', () => {
+          const zoom = mapInstance.getZoom();
+          if (zoom !== null && zoom !== undefined && zoom > 15) mapInstance.setZoom(15);
+          window.google.maps.event.removeListener(listener);
         });
       }
     }

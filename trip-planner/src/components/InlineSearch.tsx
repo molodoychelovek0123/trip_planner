@@ -3,13 +3,15 @@ import { useTripStore } from '../store';
 import { v4 as uuidv4 } from 'uuid';
 import { MapPin, Search } from 'lucide-react';
 import { useDebounce } from '../utils/useDebounce';
+import type { SuggestionItem } from '../types/suggestions';
+import type { PlacePredictionWrapper } from '../types/googlePlaces';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
 export function InlineSearch({ readOnly = false }: { readOnly?: boolean }) {
   const [inputValue, setInputValue] = useState('');
   const [isOpen, setIsOpen] = useState(false);
-  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { addToDayPlan, addToTriplist, activeDayId } = useTripStore();
@@ -36,7 +38,7 @@ export function InlineSearch({ readOnly = false }: { readOnly?: boolean }) {
          place: p // store full object
       }));
 
-      let apiSuggestions: any[] = [];
+      let apiSuggestions: SuggestionItem[] = [];
 
       if (GOOGLE_MAPS_API_KEY) {
         try {
@@ -52,7 +54,7 @@ export function InlineSearch({ readOnly = false }: { readOnly?: boolean }) {
 
           if (response.ok) {
               const data = await response.json();
-              apiSuggestions = (data.suggestions || []).map((s: any) => ({
+              apiSuggestions = (data.suggestions || []).map((s: PlacePredictionWrapper) => ({
                  isLocal: false,
                  placeId: s.placePrediction.placeId,
                  description: s.placePrediction.text.text
@@ -72,7 +74,7 @@ export function InlineSearch({ readOnly = false }: { readOnly?: boolean }) {
     fetchSuggestions();
   }, [debouncedQuery, isOpen]);
 
-  const handlePlaceSelection = async (suggestion: any) => {
+  const handlePlaceSelection = async (suggestion: SuggestionItem) => {
     if (!activeDayId) return;
 
     if (suggestion.isLocal && suggestion.place) {

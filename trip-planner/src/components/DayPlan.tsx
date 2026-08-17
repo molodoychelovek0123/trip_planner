@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { useTripStore, type DayPlanPlace, type RouteAlternative } from '../store';
+import { useTripStore, type DayPlanPlace, type RouteAlternative, type TravelSegment, type TransitBadge, type RouteStep } from '../store';
 import { Car, Footprints, Bus, Clock, Plus, Trash2, GripVertical, Hotel, AlertCircle, LockOpen, Lock } from 'lucide-react';
 import { SmartSuggestions } from './SmartSuggestions';
 import { InlineSearch } from './InlineSearch';
+import type { ComputeRouteRequest, Route, RouteLeg, RouteStepDetail } from '../types/googleRoutes';
 import {
   DndContext,
   closestCenter,
@@ -53,7 +54,7 @@ function SortablePlaceItem({
   minutesToTime: (m: number) => string;
   removeFromDayPlan: (dayId: string, uniqueId: string) => void;
   updatePlaceDuration: (dayId: string, uniqueId: string, duration: number) => void;
-  updateTravelSegment: (dayId: string, uniqueId: string, segment: any) => void;
+  updateTravelSegment: (dayId: string, uniqueId: string, segment: TravelSegment | undefined) => void;
   calculateTravelTime: (index: number, mode: 'DRIVING' | 'WALKING' | 'TRANSIT') => void;
   calculatingId: string | null;
   readOnly?: boolean;
@@ -177,7 +178,7 @@ function SortablePlaceItem({
                         (place.travelFromPrevious!.selectedRouteIndex || 0) === idx,
                         () => {
                           updateTravelSegment(activeDayId, place.uniqueId, {
-                            ...place.travelFromPrevious,
+                            ...place.travelFromPrevious!,
                             durationMinutes: alt.durationMinutes,
                             selectedRouteIndex: idx,
                           });
@@ -338,7 +339,7 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
   };
 
   const calculateTravelTime = async (index: number, mode: 'DRIVING' | 'WALKING' | 'TRANSIT') => {
-    if (!GOOGLE_MAPS_API_KEY || !(window as any).google) {
+    if (!GOOGLE_MAPS_API_KEY || !window.google) {
       const manualTime = window.prompt(`Enter estimated travel time in minutes (${mode}):`, "15");
       if (manualTime && !isNaN(Number(manualTime))) {
         updateTravelSegment(activeDay.id, dayPlan[index].uniqueId, {
@@ -370,13 +371,13 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
     try {
       // Use the new Google Routes API (REST via fetch)
       // https://developers.google.com/maps/documentation/routes/compute_route_directions
-      const routingModeMap: Record<string, string> = {
+      const routingModeMap: Record<'DRIVING' | 'WALKING' | 'TRANSIT', 'DRIVE' | 'WALK' | 'TRANSIT'> = {
         'DRIVING': 'DRIVE',
         'WALKING': 'WALK',
         'TRANSIT': 'TRANSIT',
       };
 
-      const requestBody: any = {
+      const requestBody: ComputeRouteRequest = {
         origin: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } },
         destination: { location: { latLng: { latitude: destination.lat, longitude: destination.lng } } },
         travelMode: routingModeMap[mode],
@@ -403,17 +404,17 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
       const data = await response.json();
 
       if (data.routes && data.routes.length > 0) {
-        const routeAlternatives = data.routes.map((route: any, index: number) => {
+        const routeAlternatives = data.routes.map((route: Route, index: number) => {
           const durationSeconds = parseInt(route.duration.replace('s', ''), 10);
 
           let summary = route.description || `Option ${index + 1}`;
-          let transitBadges: any[] = [];
-          let steps: any[] = [];
+          let transitBadges: TransitBadge[] = [];
+          let steps: RouteStep[] = [];
 
           if (route.legs) {
-            route.legs.forEach((leg: any) => {
+            route.legs.forEach((leg: RouteLeg) => {
               if (leg.steps) {
-                leg.steps.forEach((step: any) => {
+                leg.steps.forEach((step: RouteStepDetail) => {
                   let stepColor = undefined;
 
                   if (step.travelMode === 'TRANSIT' && step.transitDetails && step.transitDetails.transitLine) {
@@ -479,9 +480,9 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
       if (manualTime && !isNaN(Number(manualTime))) {
         const fallbackData = { mode, durationMinutes: Number(manualTime) };
         if (isEndHotel) {
-           updateEndHotelTravel(activeDay.id, fallbackData as any);
+           updateEndHotelTravel(activeDay.id, fallbackData);
         } else {
-           updateTravelSegment(activeDay.id, (destination as DayPlanPlace).uniqueId, fallbackData as any);
+           updateTravelSegment(activeDay.id, (destination as DayPlanPlace).uniqueId, fallbackData);
         }
       }
     } finally {
