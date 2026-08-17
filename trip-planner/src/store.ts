@@ -327,8 +327,10 @@ export const useTripStore = create<TripState>()(
               })
               .then(res => {
                   if (res.status === 401 || res.status === 403) {
-                      console.error("Unauthorized to sync trip");
-                      // Optionally trigger a logout or redirect here
+                      // Session expired: clear token, show a UI message and redirect to the auth landing page
+                      useAuthStore.getState().logout();
+                      sessionStorage.setItem('sessionExpired', 'true');
+                      window.location.href = '/';
                   }
               })
               .catch(err => console.error("Failed to sync state to backend:", err));

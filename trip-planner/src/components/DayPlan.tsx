@@ -159,15 +159,17 @@ function SortablePlaceItem({
                        {place.travelFromPrevious.mode === 'TRANSIT' && <Bus className="w-4 h-4 text-orange-500" />}
                     </div>
                   </div>
-                  <button
-                    className="text-xs text-blue-500 hover:text-blue-700 underline"
-                    onClick={() => updateTravelSegment(activeDayId, place.uniqueId, undefined)}
-                  >
-                    Change mode
-                  </button>
+                  {!readOnly && (
+                    <button
+                      className="text-xs text-blue-500 hover:text-blue-700 underline"
+                      onClick={() => updateTravelSegment(activeDayId, place.uniqueId, undefined)}
+                    >
+                      Change mode
+                    </button>
+                  )}
                 </div>
 
-                {place.travelFromPrevious.routeAlternatives && place.travelFromPrevious.routeAlternatives.length > 1 && (
+                {!readOnly && place.travelFromPrevious.routeAlternatives && place.travelFromPrevious.routeAlternatives.length > 1 && (
                   <div className="flex flex-wrap gap-1 mt-1 justify-center bg-gray-50 p-1 rounded-lg">
                     {place.travelFromPrevious.routeAlternatives.map((alt, idx) =>
                       renderAlternativeBadge(
@@ -186,19 +188,21 @@ function SortablePlaceItem({
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-2">
-                 <span className="text-gray-500 text-xs mr-2">Calculate path:</span>
-                 <button onClick={() => calculateTravelTime(index, 'DRIVING')} className="p-1 hover:bg-gray-100 rounded text-blue-600" disabled={calculatingId === place.uniqueId}>
-                   <Car className="w-4 h-4" />
-                 </button>
-                 <button onClick={() => calculateTravelTime(index, 'WALKING')} className="p-1 hover:bg-gray-100 rounded text-green-600" disabled={calculatingId === place.uniqueId}>
-                   <Footprints className="w-4 h-4" />
-                 </button>
-                 <button onClick={() => calculateTravelTime(index, 'TRANSIT')} className="p-1 hover:bg-gray-100 rounded text-orange-600" disabled={calculatingId === place.uniqueId}>
-                   <Bus className="w-4 h-4" />
-                 </button>
-                 {calculatingId === place.uniqueId && <span className="text-xs text-gray-400 animate-pulse">...</span>}
-              </div>
+              !readOnly && (
+                <div className="flex items-center gap-2">
+                   <span className="text-gray-500 text-xs mr-2">Calculate path:</span>
+                   <button onClick={() => calculateTravelTime(index, 'DRIVING')} className="p-1 hover:bg-gray-100 rounded text-blue-600" disabled={calculatingId === place.uniqueId}>
+                     <Car className="w-4 h-4" />
+                   </button>
+                   <button onClick={() => calculateTravelTime(index, 'WALKING')} className="p-1 hover:bg-gray-100 rounded text-green-600" disabled={calculatingId === place.uniqueId}>
+                     <Footprints className="w-4 h-4" />
+                   </button>
+                   <button onClick={() => calculateTravelTime(index, 'TRANSIT')} className="p-1 hover:bg-gray-100 rounded text-orange-600" disabled={calculatingId === place.uniqueId}>
+                     <Bus className="w-4 h-4" />
+                   </button>
+                   {calculatingId === place.uniqueId && <span className="text-xs text-gray-400 animate-pulse">...</span>}
+                </div>
+              )
             )}
           </div>
         </div>
@@ -266,12 +270,14 @@ function SortablePlaceItem({
                   )}
                 </div>
               </div>
-              <button
-                onClick={() => removeFromDayPlan(activeDayId, place.uniqueId)}
-                className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                Remove
-              </button>
+              {!readOnly && (
+                <button
+                  onClick={() => removeFromDayPlan(activeDayId, place.uniqueId)}
+                  className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  Remove
+                </button>
+              )}
             </div>
 
             <div className="mt-3 flex items-center gap-2">
@@ -526,13 +532,15 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
             Day {idx + 1}
           </button>
         ))}
-        <button
-          onClick={addDay}
-          className="p-1.5 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200"
-          title="Add new day"
-        >
-          <Plus className="w-4 h-4" />
-        </button>
+        {!readOnly && (
+          <button
+            onClick={addDay}
+            className="p-1.5 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200"
+            title="Add new day"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       <div className="flex justify-between items-center mb-4">
@@ -734,28 +742,32 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
                            {activeDay.endHotelTravel.mode === 'TRANSIT' && <Bus className="w-4 h-4 text-orange-500" />}
                         </div>
                       </div>
-                      <button
-                        className="text-xs text-blue-500 hover:text-blue-700 underline"
-                        onClick={() => updateEndHotelTravel(activeDay.id, undefined)}
-                      >
-                        Change mode
-                      </button>
+                      {!readOnly && (
+                        <button
+                          className="text-xs text-blue-500 hover:text-blue-700 underline"
+                          onClick={() => updateEndHotelTravel(activeDay.id, undefined)}
+                        >
+                          Change mode
+                        </button>
+                      )}
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2">
-                     <span className="text-gray-500 text-xs mr-2">Go to hotel:</span>
-                     <button onClick={() => calculateTravelTime(-1, 'DRIVING')} className="p-1 hover:bg-gray-100 rounded text-blue-600" disabled={calculatingId === 'end-hotel'}>
-                       <Car className="w-4 h-4" />
-                     </button>
-                     <button onClick={() => calculateTravelTime(-1, 'WALKING')} className="p-1 hover:bg-gray-100 rounded text-green-600" disabled={calculatingId === 'end-hotel'}>
-                       <Footprints className="w-4 h-4" />
-                     </button>
-                     <button onClick={() => calculateTravelTime(-1, 'TRANSIT')} className="p-1 hover:bg-gray-100 rounded text-orange-600" disabled={calculatingId === 'end-hotel'}>
-                       <Bus className="w-4 h-4" />
-                     </button>
-                     {calculatingId === 'end-hotel' && <span className="text-xs text-gray-400 animate-pulse">...</span>}
-                  </div>
+                  !readOnly && (
+                    <div className="flex items-center gap-2">
+                       <span className="text-gray-500 text-xs mr-2">Go to hotel:</span>
+                       <button onClick={() => calculateTravelTime(-1, 'DRIVING')} className="p-1 hover:bg-gray-100 rounded text-blue-600" disabled={calculatingId === 'end-hotel'}>
+                         <Car className="w-4 h-4" />
+                       </button>
+                       <button onClick={() => calculateTravelTime(-1, 'WALKING')} className="p-1 hover:bg-gray-100 rounded text-green-600" disabled={calculatingId === 'end-hotel'}>
+                         <Footprints className="w-4 h-4" />
+                       </button>
+                       <button onClick={() => calculateTravelTime(-1, 'TRANSIT')} className="p-1 hover:bg-gray-100 rounded text-orange-600" disabled={calculatingId === 'end-hotel'}>
+                         <Bus className="w-4 h-4" />
+                       </button>
+                       {calculatingId === 'end-hotel' && <span className="text-xs text-gray-400 animate-pulse">...</span>}
+                    </div>
+                  )
                 )}
               </div>
             </div>
@@ -763,8 +775,8 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
         </div>
       )}
 
-      <InlineSearch />
-      <SmartSuggestions />
+      <InlineSearch readOnly={readOnly} />
+      <SmartSuggestions readOnly={readOnly} />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useTripStore } from '../store';
 import { calculateDistance } from '../utils/haversine';
 import { PlusCircle } from 'lucide-react';
 
-export function SmartSuggestions() {
+export function SmartSuggestions({ readOnly = false }: { readOnly?: boolean }) {
   const { triplist, days, activeDayId, addToDayPlan } = useTripStore();
 
   const activeDay = days.find(d => d.id === activeDayId) || days[0];
@@ -55,13 +55,15 @@ export function SmartSuggestions() {
               <p className="text-sm font-medium text-gray-800">{suggestion.name}</p>
               <p className="text-xs text-gray-500">{formatDistance(suggestion.distance)} away</p>
             </div>
-            <button
-              onClick={() => addToDayPlan(activeDay.id, suggestion)}
-              className="text-blue-600 hover:text-blue-800 p-1"
-              title="Add to Day Plan"
-            >
-              <PlusCircle className="h-5 w-5" />
-            </button>
+            {!readOnly && (
+              <button
+                onClick={() => addToDayPlan(activeDay.id, suggestion)}
+                className="text-blue-600 hover:text-blue-800 p-1"
+                title="Add to Day Plan"
+              >
+                <PlusCircle className="h-5 w-5" />
+              </button>
+            )}
           </div>
         ))}
       </div>

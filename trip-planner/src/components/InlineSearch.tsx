@@ -6,7 +6,7 @@ import { useDebounce } from '../utils/useDebounce';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
-export function InlineSearch() {
+export function InlineSearch({ readOnly = false }: { readOnly?: boolean }) {
   const [inputValue, setInputValue] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -114,6 +114,7 @@ export function InlineSearch() {
   };
 
   if (!isOpen) {
+    if (readOnly) return null;
     return (
       <button
         onClick={() => setIsOpen(true)}

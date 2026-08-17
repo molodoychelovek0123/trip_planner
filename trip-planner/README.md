@@ -1,47 +1,102 @@
-# TripPlanner - Stage 1 (Proof of Concept)
+# TripPlanner - Stage 3 (Социальная часть)
 
-A pure frontend Proof of Concept for a dynamic, multi-day itinerary planner, inspired by the layouts of Google Maps and Wanderlog, with the powerful "smart time" calculation tools seen in JapanTravel.
+Фронтенд динамического многодневного планировщика маршрутов, вдохновлённого Google Maps, Wanderlog и инструментами «умного времени» из JapanTravel. На текущем этапе (Stage 3) приложение перешло на полноценную клиент-серверную архитектуру и поддерживает аутентификацию, многопользовательское управление маршрутами и публичный шеринг.
 
-## Features (Pure Frontend)
+## Features (Full Stack)
 
-*   **Offline-First & Local Persistence**: State is managed via `Zustand` and synced to `localStorage`, allowing the app to reload instantly without losing the user's drafted plan.
-*   **Modern Google Maps Integration**:
-    *   Replaces deprecated legacy SDKs by utilizing `fetch` requests directly to the **Places API (New)** and **Routes API (v2)**.
-    *   Decodes and renders actual street-level polylines (`google.maps.geometry.encoding`).
-    *   Distinguishes between transit modes dynamically (rendering dotted lines for walking segments, solid colored lines for public transit).
-*   **Rich Transit UX**: Generates detailed, colored badges with native emojis (🚇, 🚌, 🚋) for alternative transit routes rather than generic options.
-*   **Smart Time Cascading & Locking**:
-    *   Times automatically cascade down the schedule when a new location or travel time is added.
-    *   Users can "lock" an arrival time (e.g., for a booked tour). If they arrive early, the system generates a **Free Time** block. If they arrive late, the system alerts them with a **Warning**, without aggressively shifting the rest of the fixed itinerary.
-*   **Multi-Day & Hotel Anchors**:
-    *   Users can switch between multiple days, dragging and dropping locations via `@dnd-kit`.
-    *   Start and End hotels can be set for each day, properly routing the first and last trips.
-*   **Smart Suggestions**: Calculates Haversine distances strictly on the client side to suggest the closest saved places, avoiding costly API calls.
+### Аутентификация и сессии
+*   **Google OAuth 2.0 Sign-In**: вход через аккаунт Google (`/api/auth/google/url` + callback), выпуск JWT-токена и хранение профиля пользователя.
+*   **Обработка истёкшей сессии**: при получении ответов `401 Unauthorized` / `403 Forbidden` от бэкенда фронтенд автоматически выполняет logout, сохраняет флаг `sessionExpired` и редиректит пользователя на страницу логина с UI-сообщением «Сессия истекла. Пожалуйста, войдите снова».
+
+### Управление маршрутами (Multi-Trip Dashboard)
+*   **Dashboard `/dashboard`**: список всех маршрутов пользователя с возможностью создания, дублирования и удаления.
+*   **Редактор маршрута `/trip/:tripId`**: загрузка и синхронизация состояния маршрута с бэкендом. Синхронизация выполняется с дебаунсом и отсылает `Authorization: Bearer <token>`.
+*   **Пер-маршрутное хранение состояния**: Zustand-хранилище использует ключ `trip-planner-storage:{tripId}`, чтобы разные маршруты не перезаписывали друг друга.
+
+### Шеринг маршрутов
+*   **Публичные ссылки**: любой маршрут можно отметить публичным — бэкенд генерирует уникальный `share_token`, по которому доступен публичный read-only URL вида `/share/:shareToken`.
+*   **Модалка «Share Trip»**: в шапке редактора кнопка **Share** открывает модальное окно с toggle «Make public», полем для копирования публичной ссылки и кнопкой **Copy link**.
+*   **Просмотр публичных маршрутов в режиме View Only**: страница `/share/:shareToken` рендерит маршрут в режиме только для просмотра — без возможности редактирования (нет добавления/удаления/перестановки мест, нет выбора отелей). В шапке отображается бейдж **View Only**, а компоненты `Sidebar` и `MapView` получают проп `readOnly={true}`.
+
+### Планирование маршрута
+*   **Modern Google Maps Integration**: использование **Places API (New)** и **Routes API (v2)** через прокси-эндпоинты бэкенда; декодирование и отрисовка реальных street-level полилиний.
+*   **Rich Transit UX**: детальные цветные бейджи с нативными эмодзи (🚇, 🚌, 🚋) для альтернативных вариантов транспорта.
+*   **Smart Time Cascading & Locking**: времена автоматически каскадируются при добавлении локации или времени в пути; блокировка времени прибытия генерирует блок **Free Time** либо **Warning** при опоздании.
+*   **Multi-Day & Hotel Anchors**: переключение между днями, drag-and-drop через `@dnd-kit`, стартовый/конечный отели для каждого дня.
+*   **Smart Suggestions**: расчёт Haversine-расстояний на клиенте для подбора ближайших сохранённых мест без лишних API-вызовов.
+
+## Client Architecture / Routing
+
+| Route | Экран | Требуется авторизация | Назначение |
+|-------|-------|----------------------|------------|
+| `/` | Auth Landing / Login | Нет | Лендинг с кнопкой «Sign in with Google», описание продукта |
+| `/dashboard` | Trip Dashboard | Да | Список маршрутов пользователя, create/duplicate/delete |
+| `/trip/:tripId` | Trip Editor | Да (владелец) | Многодневное планирование (Sidebar + MapView), шеринг |
+| `/share/:shareToken` | Shared Trip (View Only) | Нет | Read-only просмотр публичного маршрута |
 
 ## Tech Stack
 
-*   **React + Vite** (Fast build, modern tooling)
-*   **TypeScript** (Strict typing for complex state)
-*   **Zustand** (Lightweight state management & persistence)
-*   **Tailwind CSS** (Rapid, responsive styling)
-*   **@dnd-kit** (Headless, accessible drag-and-drop)
-*   **Google Maps JS API Loader** (Dynamic script injection)
+*   **React + Vite** (быстрая сборка, современный тулинг)
+*   **TypeScript** (строгая типизация сложного состояния)
+*   **Zustand** (лёгкое управление состоянием + persistence)
+*   **Tailwind CSS** (быстрая, адаптивная стилизация)
+*   **@dnd-kit** (headless, accessible drag-and-drop)
+*   **react-router-dom** (клиентская маршрутизация для новых экранов)
+*   **lucide-react** (иконки для кнопок Share, UserProfile и др.)
+*   **Google Maps JS API Loader** (динамическая загрузка скриптов)
+*   **uuid** (генерация уникальных идентификаторов)
+
+Бэкенд-стек (подробнее в [`backend/README.md`](../backend/README.md)): **FastAPI**, **PostgreSQL** (SQLAlchemy + Alembic), **Google OAuth (Authlib)**, **JWT**, **httpx**.
 
 ## Setup
 
-1.  Clone the repository and install dependencies:
+Проект состоит из двух частей: бэкенда (FastAPI + PostgreSQL) и фронтенда (React + Vite). Запускайте их поочерёдно.
+
+### 1. Backend
+
+1.  Перейдите в папку `backend`:
     ```bash
+    cd backend
+    ```
+2.  Запустите PostgreSQL (если используется Docker):
+    ```bash
+    docker compose up -d
+    ```
+3.  Настройте Python-окружение и установите зависимости:
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    ```
+4.  Примените миграции базы данных:
+    ```bash
+    alembic upgrade head
+    ```
+5.  Создайте `.env` из `.env.example` и заполните ключи (Google Client ID/Secret, JWT Secret, `VITE_GOOGLE_MAPS_API_KEY` и т.д.).
+6.  Запустите API-сервер:
+    ```bash
+    uvicorn app.main:app --reload --port 8000
+    ```
+
+### 2. Frontend
+
+1.  Вернитесь в папку `trip-planner` и установите зависимости:
+    ```bash
+    cd trip-planner
     npm install
     ```
-2.  Set up your Google Maps API key. Create a `.env` file in the root:
+2.  Создайте `.env` со ссылкой на API:
     ```env
-    VITE_GOOGLE_MAPS_API_KEY="your_api_key_here"
+    VITE_API_URL=http://127.0.0.1:8000
+    VITE_GOOGLE_MAPS_API_KEY="your_google_maps_api_key"
     ```
-    *Ensure your API key has Places API (New) and Routes API enabled in the Google Cloud Console.*
-3.  Start the development server:
+3.  Запустите dev-сервер:
     ```bash
     npm run dev
     ```
 
+### 3. Google API Key
+Необходим ключ Google Maps с включёнными **Places API (New)** и **Routes API**. Для OAuth потребуются **Google Client ID** и **Client Secret** с настроенным redirect URI (`http://localhost:8000/api/auth/google/callback`).
+
 ## Moving Forward
-Read `NEXT_STEPS.md` to see the architectural plan for Stage 2 (Backend, Database, and Metrics).
+Смотрите [`NEXT_STEPS.md`](../NEXT_STEPS.md) для дальнейшего плана развития (импорт списков Google Maps, офлайн-доработки BR-4, деплой и т.д.).

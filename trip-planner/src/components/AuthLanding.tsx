@@ -7,8 +7,18 @@ export function AuthLanding() {
   const token = useAuthStore(state => state.token);
   const googleAuthUrl = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/auth/google/url`;
 
+  const sessionExpired = sessionStorage.getItem('sessionExpired') === 'true';
+  if (sessionExpired) {
+    sessionStorage.removeItem('sessionExpired');
+  }
+
   return (
     <div className="min-h-screen bg-white text-slate-900 font-sans">
+      {sessionExpired && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-800 px-6 py-3 text-center text-sm font-medium">
+          Сессия истекла. Пожалуйста, войдите снова.
+        </div>
+      )}
       {/* Navigation */}
       <nav className="flex items-center justify-between px-6 py-4 max-w-7xl mx-auto">
         <div className="flex items-center space-x-2">
