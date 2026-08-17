@@ -8,6 +8,29 @@ import { persist } from 'zustand/middleware'
 import type { PersistStorage } from 'zustand/middleware'
 import { v4 as uuidv4 } from 'uuid'
 
+export interface AuthState {
+  token: string | null;
+  activeTripId: string | null;
+  setToken: (token: string | null) => void;
+  setActiveTripId: (tripId: string | null) => void;
+  logout: () => void;
+}
+
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      token: null,
+      activeTripId: null,
+      setToken: (token) => set({ token }),
+      setActiveTripId: (tripId) => set({ activeTripId: tripId }),
+      logout: () => set({ token: null, activeTripId: null }),
+    }),
+    {
+      name: 'trip-planner-auth',
+    }
+  )
+)
+
 /**
  * Represents a saved geographical location.
  */
@@ -113,14 +136,16 @@ interface TripState {
   updateTravelSegment: (dayId: string, uniqueId: string, segment: TravelSegment | undefined) => void;
   updateEndHotelTravel: (dayId: string, segment: TravelSegment | undefined) => void;
   updateLockedArrivalTime: (dayId: string, uniqueId: string, time: string | undefined) => void;
+
+  initFromServer: (serverState: Partial<TripState>) => void;
 }
 
 export const useTripStore = create<TripState>()(
   persist(
     (set) => ({
       triplist: defaultPlaces,
-      days: [{ id: 'day-1', startTime: '09:00', plan: [] }],
-      activeDayId: 'day-1',
+      days: [{ id: uuidv4(), startTime: '09:00', plan: [] }],
+      activeDayId: null, // Will be set after initial creation or load
 
       setActiveDay: (dayId) => set({ activeDayId: dayId }),
 
@@ -241,23 +266,49 @@ export const useTripStore = create<TripState>()(
             plan: d.plan.map(p => p.uniqueId === uniqueId ? { ...p, lockedArrivalTime: time } : p)
           };
         })
-      }))
+      })),
+
+      initFromServer: (serverState) => set((state) => {
+        // Ensure there is always at least one day
+        const days = (serverState.days && serverState.days.length > 0)
+            ? serverState.days
+            : [{ id: uuidv4(), startTime: '09:00', plan: [] }];
+
+        return {
+          ...state,
+          ...serverState,
+          days,
+          activeDayId: serverState.activeDayId || days[0].id
+        };
+      })
     }),
     {
-      name: 'trip-planner-storage', // name of item in localStorage
+      name: 'trip-planner-storage', // dynamic key generated in getItem/setItem
       storage: ((): PersistStorage<TripState> => {
         let timeoutId: any;
-        const MOCK_TRIP_ID = 'default-trip-id'; // Use a fixed trip ID for now
+
+        const getStorageKey = (name: string) => {
+          const tripId = useAuthStore.getState().activeTripId;
+          return tripId ? `${name}-${tripId}` : name;
+        };
 
         return {
           getItem: (name) => {
-            const str = localStorage.getItem(name);
+            const key = getStorageKey(name);
+            const str = localStorage.getItem(key);
             if (!str) return null;
             return JSON.parse(str);
           },
           setItem: (name, value) => {
+            const tripId = useAuthStore.getState().activeTripId;
+            const token = useAuthStore.getState().token;
+            const key = getStorageKey(name);
+
             // First, update local storage immediately for fast reloads
-            localStorage.setItem(name, JSON.stringify(value));
+            localStorage.setItem(key, JSON.stringify(value));
+
+            // Do not sync if there is no active trip ID or token (e.g. shared trip view)
+            if (!tripId || !token) return;
 
             // Then, debounce the sync to the backend
             if (timeoutId) {
@@ -265,16 +316,27 @@ export const useTripStore = create<TripState>()(
             }
 
             timeoutId = setTimeout(() => {
-              fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/trips/${MOCK_TRIP_ID}`, {
+              fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/trips/${tripId}`, {
                 method: 'PATCH',
                 headers: {
                   'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify(value.state)
-              }).catch(err => console.error("Failed to sync state to backend:", err));
+              })
+              .then(res => {
+                  if (res.status === 401 || res.status === 403) {
+                      console.error("Unauthorized to sync trip");
+                      // Optionally trigger a logout or redirect here
+                  }
+              })
+              .catch(err => console.error("Failed to sync state to backend:", err));
             }, 1000); // 1-second debounce
           },
-          removeItem: (name) => localStorage.removeItem(name),
+          removeItem: (name) => {
+              const key = getStorageKey(name);
+              localStorage.removeItem(key);
+          },
         }
       })(),
     }

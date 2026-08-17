@@ -40,7 +40,8 @@ function SortablePlaceItem({
   updatePlaceDuration,
   updateTravelSegment,
   calculateTravelTime,
-  calculatingId
+  calculatingId,
+  readOnly
 }: {
   place: DayPlanPlace;
   index: number;
@@ -55,6 +56,7 @@ function SortablePlaceItem({
   updateTravelSegment: (dayId: string, uniqueId: string, segment: any) => void;
   calculateTravelTime: (index: number, mode: 'DRIVING' | 'WALKING' | 'TRANSIT') => void;
   calculatingId: string | null;
+  readOnly?: boolean;
 }) {
   const {
     attributes,
@@ -232,11 +234,13 @@ function SortablePlaceItem({
                         value={place.lockedArrivalTime}
                         onChange={(e) => updateLockedArrivalTime(activeDayId, place.uniqueId, e.target.value || undefined)}
                         className="bg-transparent border-none focus:ring-0 p-0 text-sm w-12"
+                        disabled={readOnly}
                       />
                       <button
                         onClick={() => updateLockedArrivalTime(activeDayId, place.uniqueId, undefined)}
                         className="ml-1 text-blue-400 hover:text-blue-600 focus:outline-none"
                         title="Unlock auto-calculation"
+                        disabled={readOnly}
                       >
                         <Lock className="w-3 h-3" />
                       </button>
@@ -246,9 +250,10 @@ function SortablePlaceItem({
                       className="flex items-center text-sm font-mono text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded px-1.5 py-0.5 transition-colors group"
                       onClick={() => updateLockedArrivalTime(activeDayId, place.uniqueId, arrivalTime)}
                       title="Click to lock this arrival time"
+                      disabled={readOnly}
                     >
                       {arrivalTime}
-                      <LockOpen className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      {!readOnly && <LockOpen className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />}
                     </button>
                   )}
 
@@ -278,6 +283,7 @@ function SortablePlaceItem({
                 value={place.userDuration}
                 onChange={(e) => updatePlaceDuration(activeDayId, place.uniqueId, Number(e.target.value) || 0)}
                 className="w-16 text-sm border rounded px-1 py-0.5"
+                disabled={readOnly}
               />
             </div>
           </div>
@@ -291,13 +297,13 @@ function SortablePlaceItem({
  * Main component for assembling and managing the itinerary of a specific day.
  * Includes drag-and-drop, hotel selection, and cascading time calculations.
  */
-export function DayPlan() {
+export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
   const { triplist, days, activeDayId, setActiveDay, addDay, removeDay, setDayStartTime, updatePlaceDuration, removeFromDayPlan, updateTravelSegment, reorderDayPlan, setStartHotel, setEndHotel, updateEndHotelTravel, updateLockedArrivalTime } = useTripStore();
   const [calculatingId, setCalculatingId] = useState<string | null>(null);
 
   const activeDay = days.find(d => d.id === activeDayId) || days[0];
-  const dayPlan = activeDay.plan;
-  const dayStartTime = activeDay.startTime;
+  const dayPlan = activeDay?.plan || [];
+  const dayStartTime = activeDay?.startTime || '09:00';
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -309,6 +315,8 @@ export function DayPlan() {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
+
+  if (!activeDay) return null;
 
   // Helper to parse HH:MM to minutes from midnight
   const timeToMinutes = (timeStr: string) => {
@@ -530,7 +538,7 @@ export function DayPlan() {
       <div className="flex justify-between items-center mb-4">
         <div className="flex items-center gap-2">
            <h2 className="text-lg font-bold text-gray-800">Plan</h2>
-           {days.length > 1 && (
+           {!readOnly && days.length > 1 && (
              <button onClick={() => removeDay(activeDay.id)} className="text-red-400 hover:text-red-600 p-1" title="Delete current day">
                <Trash2 className="w-4 h-4" />
              </button>
@@ -543,6 +551,7 @@ export function DayPlan() {
             value={dayStartTime}
             onChange={(e) => setDayStartTime(activeDay.id, e.target.value)}
             className="bg-transparent border-none focus:ring-0 text-sm font-medium text-gray-800 p-0"
+            disabled={readOnly}
           />
         </div>
       </div>
@@ -555,6 +564,7 @@ export function DayPlan() {
           className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white"
           value={activeDay.startHotelId || ''}
           onChange={(e) => setStartHotel(activeDay.id, e.target.value || undefined)}
+          disabled={readOnly}
         >
           <option value="">(No start hotel selected)</option>
           {triplist.map(p => (
@@ -567,6 +577,68 @@ export function DayPlan() {
         <div className="text-center py-12 text-gray-500 border-2 border-dashed border-gray-200 rounded-lg">
           <p>No places added yet.</p>
           <p className="text-sm mt-1">Search for a place below to start planning.</p>
+        </div>
+      ) : readOnly ? (
+        <div className="space-y-4">
+          {dayPlan.map((place, index) => {
+            let currentMinutes = timeToMinutes(dayStartTime);
+
+            // Forward-calculate arrival time
+            let arrivalTimeMins = currentMinutes;
+            if (index === 0 && place.travelFromPrevious) {
+                arrivalTimeMins += place.travelFromPrevious.durationMinutes;
+            } else if (index > 0) {
+                // Find previous item's departure
+                let prevDep = timeToMinutes(dayStartTime);
+                for (let i = 0; i < index; i++) {
+                   const pItem = dayPlan[i];
+                   if (i === 0 && pItem.travelFromPrevious) prevDep += pItem.travelFromPrevious.durationMinutes;
+
+                   if (pItem.lockedArrivalTime) {
+                       prevDep = timeToMinutes(pItem.lockedArrivalTime);
+                   } else if (i > 0 && pItem.travelFromPrevious) {
+                       prevDep += pItem.travelFromPrevious.durationMinutes;
+                   }
+                   prevDep += pItem.userDuration;
+                }
+                if (place.travelFromPrevious) {
+                    arrivalTimeMins = prevDep + place.travelFromPrevious.durationMinutes;
+                } else {
+                    arrivalTimeMins = prevDep;
+                }
+            }
+
+            const projectedArrival = arrivalTimeMins;
+            if (place.lockedArrivalTime) {
+               const lockedMins = timeToMinutes(place.lockedArrivalTime);
+               currentMinutes = lockedMins;
+            }
+
+            const actualArrival = currentMinutes;
+            const departureMinutes = currentMinutes + place.userDuration;
+
+            currentMinutes = departureMinutes;
+
+            return (
+              <SortablePlaceItem
+                key={place.uniqueId}
+                place={place}
+                index={index}
+                activeDayId={activeDay.id}
+                startHotelId={activeDay.startHotelId}
+                currentMinutes={actualArrival}
+                projectedArrivalMinutes={projectedArrival}
+                minutesToTime={minutesToTime}
+                removeFromDayPlan={removeFromDayPlan}
+                updatePlaceDuration={updatePlaceDuration}
+                updateTravelSegment={updateTravelSegment}
+                calculateTravelTime={calculateTravelTime}
+                calculatingId={calculatingId}
+                updateLockedArrivalTime={updateLockedArrivalTime}
+                readOnly={readOnly}
+              />
+            );
+          })}
         </div>
       ) : (
         <DndContext
@@ -636,6 +708,7 @@ export function DayPlan() {
               className="flex-1 text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white"
               value={activeDay.endHotelId || ''}
               onChange={(e) => setEndHotel(activeDay.id, e.target.value || undefined)}
+              disabled={readOnly}
             >
               <option value="">(No end hotel selected)</option>
               {triplist.map(p => (
