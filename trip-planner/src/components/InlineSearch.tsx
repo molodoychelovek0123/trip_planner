@@ -18,48 +18,74 @@ export function InlineSearch() {
   useEffect(() => {
     if (!isOpen) return;
 
-    if (!GOOGLE_MAPS_API_KEY) {
-      console.warn("Google Maps API Key is missing. Search won't work correctly.");
-      return;
-    }
-
     if (!debouncedQuery) {
       setSuggestions([]);
       return;
     }
 
     const fetchSuggestions = async () => {
-      try {
-        // Use Places API New (Autocomplete) REST endpoint
-        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/places/autocomplete`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            input: debouncedQuery,
-            // optional parameters can be added here
-          })
-        });
+      // 1. Search local triplist first
+      const { triplist } = useTripStore.getState();
+      const queryLower = debouncedQuery.toLowerCase();
+      const localMatches = triplist.filter(p => p.name.toLowerCase().includes(queryLower));
 
-        if (!response.ok) throw new Error("Autocomplete API failed");
+      const formattedLocal = localMatches.map(p => ({
+         isLocal: true,
+         placeId: p.id,
+         description: p.name,
+         place: p // store full object
+      }));
 
-        const data = await response.json();
-        setSuggestions(data.suggestions || []);
-      } catch (err) {
-        console.error("Failed to fetch suggestions", err);
+      let apiSuggestions: any[] = [];
+
+      if (GOOGLE_MAPS_API_KEY) {
+        try {
+          const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/places/autocomplete`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              input: debouncedQuery,
+            })
+          });
+
+          if (response.ok) {
+              const data = await response.json();
+              apiSuggestions = (data.suggestions || []).map((s: any) => ({
+                 isLocal: false,
+                 placeId: s.placePrediction.placeId,
+                 description: s.placePrediction.text.text
+              }));
+          }
+        } catch (err) {
+          console.error("Failed to fetch API suggestions", err);
+        }
       }
+
+      // Merge and deduplicate by placeId
+      const combined = [...formattedLocal, ...apiSuggestions];
+      const unique = combined.filter((v, i, a) => a.findIndex(t => t.placeId === v.placeId) === i);
+      setSuggestions(unique);
     };
 
     fetchSuggestions();
   }, [debouncedQuery, isOpen]);
 
-  const handlePlaceSelection = async (placeId: string, description: string) => {
+  const handlePlaceSelection = async (suggestion: any) => {
     if (!activeDayId) return;
+
+    if (suggestion.isLocal && suggestion.place) {
+        addToDayPlan(activeDayId, suggestion.place);
+        setInputValue('');
+        setSuggestions([]);
+        setIsOpen(false);
+        return;
+    }
 
     // Fetch place details using Places API New (Place Details) REST endpoint
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/places/${placeId}`);
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/places/${suggestion.placeId}`);
 
       if (!response.ok) throw new Error("Place Details API failed");
 
@@ -68,10 +94,11 @@ export function InlineSearch() {
       if (data && data.location) {
         const newPlace = {
           id: data.id || uuidv4(),
-          name: data.displayName?.text || description,
+          name: data.displayName?.text || suggestion.description,
           lat: data.location.latitude,
           lng: data.location.longitude,
-          recommendedDuration: 30
+          recommendedDuration: data.recommendedDuration || 30,
+          city: data.city
         };
 
         addToTriplist(newPlace);
@@ -119,11 +146,12 @@ export function InlineSearch() {
         <ul className="absolute z-50 mt-1 w-[calc(100%-2rem)] bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto">
           {suggestions.map((suggestion) => (
             <li
-              key={suggestion.placePrediction.placeId}
-              onClick={() => handlePlaceSelection(suggestion.placePrediction.placeId, suggestion.placePrediction.text.text)}
-              className="px-4 py-2 hover:bg-gray-100 cursor-pointer text-sm text-gray-700"
+              key={suggestion.placeId}
+              onClick={() => handlePlaceSelection(suggestion)}
+              className="px-4 py-2 hover:bg-gray-100 cursor-pointer text-sm text-gray-700 flex items-center gap-2"
             >
-              {suggestion.placePrediction.text.text}
+              {suggestion.isLocal && <span className="text-blue-500 font-bold text-xs">SAVED</span>}
+              {suggestion.description}
             </li>
           ))}
         </ul>

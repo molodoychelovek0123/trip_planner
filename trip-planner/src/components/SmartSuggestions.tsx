@@ -29,6 +29,7 @@ export function SmartSuggestions() {
       ...place,
       distance: calculateDistance(lastPoint.lat, lastPoint.lng, place.lat, place.lng),
     }))
+    .filter((place) => place.distance <= 250000) // Within 250km radius
     .sort((a, b) => a.distance - b.distance)
     .slice(0, 3); // Top 3 closest points
 

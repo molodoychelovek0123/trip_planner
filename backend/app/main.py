@@ -213,7 +213,9 @@ async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Sessio
         return {
             "id": place_id,
             "displayName": {"text": cached_place.name},
-            "location": {"latitude": cached_place.lat, "longitude": cached_place.lng}
+            "location": {"latitude": cached_place.lat, "longitude": cached_place.lng},
+            "city": cached_place.city,
+            "recommendedDuration": cached_place.recommended_duration
         }
 
     # 2. If not found, fetch from Google API
@@ -222,13 +224,33 @@ async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Sessio
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"https://places.googleapis.com/v1/places/{place_id}?fields=id,displayName,location",
+            f"https://places.googleapis.com/v1/places/{place_id}?fields=id,displayName,location,addressComponents,types",
             headers={"X-Goog-Api-Key": GOOGLE_MAPS_API_KEY}
         )
         if response.status_code != 200:
             raise HTTPException(status_code=response.status_code, detail=response.text)
 
         data = response.json()
+
+        # Determine city from addressComponents
+        city = None
+        components = data.get("addressComponents", [])
+        for component in components:
+            if "locality" in component.get("types", []):
+                city = component.get("longText")
+                break
+
+        # Calculate smart recommendedDuration based on types
+        recommended_duration = 30 # default
+        types = data.get("types", [])
+        if "museum" in types or "art_gallery" in types or "zoo" in types or "amusement_park" in types:
+            recommended_duration = 120
+        elif "park" in types or "tourist_attraction" in types or "church" in types or "place_of_worship" in types:
+            recommended_duration = 60
+        elif "restaurant" in types or "cafe" in types or "bar" in types:
+            recommended_duration = 60
+        elif "shopping_mall" in types or "department_store" in types:
+            recommended_duration = 90
 
         # 3. Save to database cache
         if "location" in data:
@@ -237,11 +259,16 @@ async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Sessio
                 google_place_id=data.get("id"),
                 name=data.get("displayName", {}).get("text", "Unknown"),
                 lat=data.get("location", {}).get("latitude"),
-                lng=data.get("location", {}).get("longitude")
+                lng=data.get("location", {}).get("longitude"),
+                city=city,
+                recommended_duration=recommended_duration
             )
             db.add(new_place)
             db.commit()
             background_tasks.add_task(log_event, "place_added", {"place_id": place_id, "source": "api"})
+
+        data["city"] = city
+        data["recommendedDuration"] = recommended_duration
 
         return data
 
@@ -338,7 +365,8 @@ def _serialize_trip(trip, db):
             "name": p.name,
             "lat": p.lat,
             "lng": p.lng,
-            "recommendedDuration": p.recommended_duration
+            "recommendedDuration": p.recommended_duration,
+            "city": p.city
         }
         for p in places if not p.google_place_id.startswith("dummy_")
     ]
