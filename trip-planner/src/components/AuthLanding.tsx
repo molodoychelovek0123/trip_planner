@@ -1,7 +1,10 @@
+import { Link } from 'react-router-dom';
 import { Clock, Zap, WifiOff, MapPin, Compass } from 'lucide-react';
 import { UserProfile } from './UserProfile';
+import { useAuthStore } from '../store';
 
 export function AuthLanding() {
+  const token = useAuthStore(state => state.token);
   const googleAuthUrl = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/auth/google/url`;
 
   return (
@@ -25,13 +28,24 @@ export function AuthLanding() {
           <p className="text-lg md:text-xl text-slate-600 mb-10 max-w-2xl mx-auto">
             Build, organize, and map your itineraries in a free travel app designed for vacations & road trips. Driven by a powerful scheduling algorithm.
           </p>
-          <a
-            href={googleAuthUrl}
-            className="inline-flex items-center justify-center px-8 py-4 text-lg font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-full transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-          >
-            Start planning now
-          </a>
-          <p className="mt-4 text-sm text-slate-500">It's free! Sign up with Google.</p>
+          {token ? (
+            <Link
+              to="/dashboard"
+              className="inline-flex items-center justify-center px-8 py-4 text-lg font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-full transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+            >
+              Go to Dashboard
+            </Link>
+          ) : (
+            <>
+              <a
+                href={googleAuthUrl}
+                className="inline-flex items-center justify-center px-8 py-4 text-lg font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-full transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+              >
+                Start planning now
+              </a>
+              <p className="mt-4 text-sm text-slate-500">It's free! Sign up with Google.</p>
+            </>
+          )}
         </section>
 
         {/* Features Section */}
@@ -98,12 +112,21 @@ export function AuthLanding() {
           <p className="text-xl text-slate-600 mb-10">
             Join thousands of travelers planning their next adventure.
           </p>
-          <a
-            href={googleAuthUrl}
-            className="inline-flex items-center justify-center px-8 py-4 text-lg font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-full transition-colors shadow-lg"
-          >
-            Create your first trip
-          </a>
+          {token ? (
+            <Link
+              to="/dashboard"
+              className="inline-flex items-center justify-center px-8 py-4 text-lg font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-full transition-colors shadow-lg"
+            >
+              Go to Dashboard
+            </Link>
+          ) : (
+            <a
+              href={googleAuthUrl}
+              className="inline-flex items-center justify-center px-8 py-4 text-lg font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-full transition-colors shadow-lg"
+            >
+              Create your first trip
+            </a>
+          )}
         </section>
       </main>
 
