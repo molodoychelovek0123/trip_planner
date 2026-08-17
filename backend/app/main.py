@@ -273,6 +273,108 @@ async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Sessio
         return data
 
 
+# --- Saved Places APIs ---
+
+@app.get("/api/saved-places")
+async def get_saved_places(current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Returns all saved places for the authenticated user.
+    """
+    saved_places = db.query(models.UserSavedPlace).filter(models.UserSavedPlace.user_id == current_user.id).all()
+
+    result = []
+    for sp in saved_places:
+        place = sp.place
+        result.append({
+            "id": place.id,
+            "google_place_id": place.google_place_id,
+            "name": place.name,
+            "lat": place.lat,
+            "lng": place.lng,
+            "city": place.city,
+            "notes": sp.notes
+        })
+    return result
+
+@app.post("/api/saved-places")
+async def add_saved_place(request: dict, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Adds a place to the user's saved list.
+    """
+    place_id = request.get("id")
+    if not place_id:
+         raise HTTPException(status_code=400, detail="place_id (id) is required")
+
+    # Check if place exists in global cache
+    place = db.query(models.Place).filter(models.Place.id == place_id).first()
+    if not place:
+        # Save it to cache based on frontend data (graceful degradation)
+        place = models.Place(
+            id=place_id,
+            google_place_id=request.get("google_place_id", f"dummy_{place_id}"),
+            name=request.get("name", "Unknown Place"),
+            lat=request.get("lat", 0.0),
+            lng=request.get("lng", 0.0),
+            city=request.get("city", None),
+        )
+        db.add(place)
+        db.commit()
+
+    # Check if already saved
+    existing = db.query(models.UserSavedPlace).filter(
+        models.UserSavedPlace.user_id == current_user.id,
+        models.UserSavedPlace.place_id == place_id
+    ).first()
+
+    if existing:
+         return {"status": "success", "message": "Place already saved"}
+
+    saved_place = models.UserSavedPlace(
+        user_id=current_user.id,
+        place_id=place_id,
+        notes=request.get("notes")
+    )
+    db.add(saved_place)
+    db.commit()
+    return {"status": "success"}
+
+@app.delete("/api/saved-places/{place_id}")
+async def delete_saved_place(place_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Removes a place from the user's saved list.
+    """
+    saved_place = db.query(models.UserSavedPlace).filter(
+        models.UserSavedPlace.user_id == current_user.id,
+        models.UserSavedPlace.place_id == place_id
+    ).first()
+
+    if not saved_place:
+        raise HTTPException(status_code=404, detail="Saved place not found")
+
+    db.delete(saved_place)
+    db.commit()
+    return {"status": "success"}
+
+@app.patch("/api/saved-places/{place_id}")
+async def update_saved_place(place_id: str, request: dict, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Updates notes for a saved place.
+    """
+    saved_place = db.query(models.UserSavedPlace).filter(
+        models.UserSavedPlace.user_id == current_user.id,
+        models.UserSavedPlace.place_id == place_id
+    ).first()
+
+    if not saved_place:
+        raise HTTPException(status_code=404, detail="Saved place not found")
+
+    if "notes" in request:
+        saved_place.notes = request["notes"]
+
+    db.commit()
+    return {"status": "success"}
+
+
 # --- Trips Sync APIs ---
 
 import uuid

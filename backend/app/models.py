@@ -22,6 +22,7 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     trips = relationship("Trip", back_populates="user")
+    saved_places = relationship("UserSavedPlace", back_populates="user")
 
 class Place(Base):
     """
@@ -37,6 +38,22 @@ class Place(Base):
     recommended_duration = Column(Integer, default=30)
     city = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    saved_by_users = relationship("UserSavedPlace", back_populates="place")
+
+class UserSavedPlace(Base):
+    """
+    Represents a place saved by a user to their global favorites list.
+    """
+    __tablename__ = "user_saved_places"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id"))
+    place_id = Column(String, ForeignKey("places.id"))
+    notes = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="saved_places")
+    place = relationship("Place", back_populates="saved_by_users")
 
 class Trip(Base):
     """
