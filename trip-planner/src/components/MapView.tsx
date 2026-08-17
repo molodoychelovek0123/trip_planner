@@ -10,7 +10,7 @@ const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
  * Visualizes saved places (Triplist) as gray dots, and DayPlan places as numbered blue pins.
  * Decodes and renders multi-segment polylines for calculated routes.
  */
-export function MapView() {
+export function MapView({ readOnly = false }: { readOnly?: boolean }) {
   const mapRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<any>(null);
   const markersRef = useRef<any[]>([]);
@@ -25,7 +25,7 @@ export function MapView() {
 
   const { days, activeDayId, triplist } = useTripStore();
   const activeDay = days.find(d => d.id === activeDayId) || days[0];
-  const dayPlan = activeDay.plan;
+  const dayPlan = activeDay?.plan || [];
 
   useEffect(() => {
     if (!GOOGLE_MAPS_API_KEY) {
@@ -58,6 +58,7 @@ export function MapView() {
 
       // Add right-click listener
       newMap.addListener('contextmenu', (e: any) => {
+        if (readOnly) return;
         if (e.latLng && e.pixel) {
            setContextMenu({
              isOpen: true,

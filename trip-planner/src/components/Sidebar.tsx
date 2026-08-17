@@ -3,7 +3,7 @@ import { DayPlan } from './DayPlan';
 import { Triplist } from './Triplist';
 import { Calendar, Bookmark } from 'lucide-react';
 
-export function Sidebar() {
+export function Sidebar({ readOnly = false }: { readOnly?: boolean }) {
   const [activeTab, setActiveTab] = useState<'plan' | 'saved'>('plan');
 
   return (
@@ -41,7 +41,7 @@ export function Sidebar() {
 
       {/* Content Area - Scrollable */}
       <div className="flex-1 overflow-y-auto p-4">
-        {activeTab === 'plan' ? <DayPlan /> : <Triplist />}
+        {activeTab === 'plan' ? <DayPlan readOnly={readOnly} /> : <Triplist readOnly={readOnly} />}
       </div>
     </div>
   );

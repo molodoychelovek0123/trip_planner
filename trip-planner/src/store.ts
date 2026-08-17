@@ -144,8 +144,8 @@ export const useTripStore = create<TripState>()(
   persist(
     (set) => ({
       triplist: defaultPlaces,
-      days: [{ id: 'day-1', startTime: '09:00', plan: [] }],
-      activeDayId: 'day-1',
+      days: [{ id: uuidv4(), startTime: '09:00', plan: [] }],
+      activeDayId: null, // Will be set after initial creation or load
 
       setActiveDay: (dayId) => set({ activeDayId: dayId }),
 
@@ -268,10 +268,19 @@ export const useTripStore = create<TripState>()(
         })
       })),
 
-      initFromServer: (serverState) => set((state) => ({
-        ...state,
-        ...serverState
-      }))
+      initFromServer: (serverState) => set((state) => {
+        // Ensure there is always at least one day
+        const days = (serverState.days && serverState.days.length > 0)
+            ? serverState.days
+            : [{ id: uuidv4(), startTime: '09:00', plan: [] }];
+
+        return {
+          ...state,
+          ...serverState,
+          days,
+          activeDayId: serverState.activeDayId || days[0].id
+        };
+      })
     }),
     {
       name: 'trip-planner-storage', // dynamic key generated in getItem/setItem

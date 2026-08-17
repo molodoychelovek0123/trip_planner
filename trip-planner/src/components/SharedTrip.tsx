@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { MapView } from './MapView';
-import { useTripStore } from '../store';
+import { useTripStore, useAuthStore } from '../store';
 
 export function SharedTrip() {
   const { shareToken } = useParams();
@@ -15,6 +15,7 @@ export function SharedTrip() {
   useEffect(() => {
     // We explicitly set a generic non-syncing id for shared trips
     // to prevent local mutations from persisting accidentally if the user is logged in
+    useAuthStore.setState({ activeTripId: null });
 
     if (shareToken) {
         fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/share/${shareToken}`)
@@ -47,9 +48,9 @@ export function SharedTrip() {
   }
 
   return (
-    <div className="h-screen w-screen flex bg-gray-50 overflow-hidden relative pointer-events-none">
+    <div className="h-screen w-screen flex bg-gray-50 overflow-hidden relative">
       {/* Header overlay */}
-      <div className="absolute top-0 left-0 w-full h-12 bg-white/90 backdrop-blur border-b z-50 flex justify-between items-center px-4 pointer-events-auto">
+      <div className="absolute top-0 left-0 w-full h-12 bg-white/90 backdrop-blur border-b z-50 flex justify-between items-center px-4">
           <div className="font-bold text-gray-800">{tripTitle}</div>
           <div className="bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded border border-yellow-200">
               View Only
@@ -59,18 +60,14 @@ export function SharedTrip() {
       <div className="pt-12 flex w-full h-full">
         {/* Sidebar - Fixed width on left */}
         <div className="w-[450px] flex-shrink-0 bg-white shadow-2xl z-10 flex flex-col h-full border-r border-gray-200">
-            {/* The Sidebar component internally will need some 'readOnly' prop ideally, but for now CSS pointer-events-none on parent works ok for simple view, though it breaks scrolling.
-                A proper implementation would pass readOnly to Sidebar/DayPlan.
-                For MVP, we allow scrolling by overriding pointer events on specific containers if needed.
-             */}
-          <div className="pointer-events-auto h-full overflow-y-auto">
-             <Sidebar />
+          <div className="h-full overflow-y-auto">
+             <Sidebar readOnly={true} />
           </div>
         </div>
 
         {/* Map Area - Fills remaining space */}
-        <div className="flex-1 relative h-full bg-gray-200 pointer-events-auto">
-          <MapView />
+        <div className="flex-1 relative h-full bg-gray-200">
+          <MapView readOnly={true} />
         </div>
       </div>
     </div>

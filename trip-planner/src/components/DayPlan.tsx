@@ -302,8 +302,8 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
   const [calculatingId, setCalculatingId] = useState<string | null>(null);
 
   const activeDay = days.find(d => d.id === activeDayId) || days[0];
-  const dayPlan = activeDay.plan;
-  const dayStartTime = activeDay.startTime;
+  const dayPlan = activeDay?.plan || [];
+  const dayStartTime = activeDay?.startTime || '09:00';
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -315,6 +315,8 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
+
+  if (!activeDay) return null;
 
   // Helper to parse HH:MM to minutes from midnight
   const timeToMinutes = (timeStr: string) => {
@@ -536,7 +538,7 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
       <div className="flex justify-between items-center mb-4">
         <div className="flex items-center gap-2">
            <h2 className="text-lg font-bold text-gray-800">Plan</h2>
-           {days.length > 1 && (
+           {!readOnly && days.length > 1 && (
              <button onClick={() => removeDay(activeDay.id)} className="text-red-400 hover:text-red-600 p-1" title="Delete current day">
                <Trash2 className="w-4 h-4" />
              </button>
@@ -575,6 +577,68 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
         <div className="text-center py-12 text-gray-500 border-2 border-dashed border-gray-200 rounded-lg">
           <p>No places added yet.</p>
           <p className="text-sm mt-1">Search for a place below to start planning.</p>
+        </div>
+      ) : readOnly ? (
+        <div className="space-y-4">
+          {dayPlan.map((place, index) => {
+            let currentMinutes = timeToMinutes(dayStartTime);
+
+            // Forward-calculate arrival time
+            let arrivalTimeMins = currentMinutes;
+            if (index === 0 && place.travelFromPrevious) {
+                arrivalTimeMins += place.travelFromPrevious.durationMinutes;
+            } else if (index > 0) {
+                // Find previous item's departure
+                let prevDep = timeToMinutes(dayStartTime);
+                for (let i = 0; i < index; i++) {
+                   const pItem = dayPlan[i];
+                   if (i === 0 && pItem.travelFromPrevious) prevDep += pItem.travelFromPrevious.durationMinutes;
+
+                   if (pItem.lockedArrivalTime) {
+                       prevDep = timeToMinutes(pItem.lockedArrivalTime);
+                   } else if (i > 0 && pItem.travelFromPrevious) {
+                       prevDep += pItem.travelFromPrevious.durationMinutes;
+                   }
+                   prevDep += pItem.userDuration;
+                }
+                if (place.travelFromPrevious) {
+                    arrivalTimeMins = prevDep + place.travelFromPrevious.durationMinutes;
+                } else {
+                    arrivalTimeMins = prevDep;
+                }
+            }
+
+            const projectedArrival = arrivalTimeMins;
+            if (place.lockedArrivalTime) {
+               const lockedMins = timeToMinutes(place.lockedArrivalTime);
+               currentMinutes = lockedMins;
+            }
+
+            const actualArrival = currentMinutes;
+            const departureMinutes = currentMinutes + place.userDuration;
+
+            currentMinutes = departureMinutes;
+
+            return (
+              <SortablePlaceItem
+                key={place.uniqueId}
+                place={place}
+                index={index}
+                activeDayId={activeDay.id}
+                startHotelId={activeDay.startHotelId}
+                currentMinutes={actualArrival}
+                projectedArrivalMinutes={projectedArrival}
+                minutesToTime={minutesToTime}
+                removeFromDayPlan={removeFromDayPlan}
+                updatePlaceDuration={updatePlaceDuration}
+                updateTravelSegment={updateTravelSegment}
+                calculateTravelTime={calculateTravelTime}
+                calculatingId={calculatingId}
+                updateLockedArrivalTime={updateLockedArrivalTime}
+                readOnly={readOnly}
+              />
+            );
+          })}
         </div>
       ) : (
         <DndContext
