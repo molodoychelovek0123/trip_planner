@@ -8,23 +8,144 @@ import os
 from dotenv import load_dotenv
 from .database import get_db, engine
 from . import models
+from authlib.integrations.starlette_client import OAuth
+from fastapi import Request
+from fastapi.responses import RedirectResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import jwt
 
 load_dotenv()
 GOOGLE_MAPS_API_KEY = os.getenv("VITE_GOOGLE_MAPS_API_KEY", "")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+JWT_SECRET = os.getenv("JWT_SECRET", "super-secret-key-change-in-prod")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "10080")) # 7 days
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback")
 
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
+from starlette.middleware.sessions import SessionMiddleware
+app.add_middleware(SessionMiddleware, secret_key="some-random-string")
+
 # Make sure we accept CORS from our frontend
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[FRONTEND_URL, "http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+oauth = OAuth()
+oauth.register(
+    name='google',
+    client_id=GOOGLE_CLIENT_ID,
+    client_secret=GOOGLE_CLIENT_SECRET,
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={'scope': 'openid email profile'}
+)
+
+security = HTTPBearer()
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+
+@app.get("/api/auth/google/url")
+async def google_login(request: Request):
+    if not GOOGLE_CLIENT_ID:
+        # Mock login for testing without credentials
+        return {"url": f"{FRONTEND_URL}/api/auth/google/callback?mock=true"}
+    redirect_uri = GOOGLE_REDIRECT_URI
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+
+@app.get("/api/auth/google/callback")
+async def google_auth_callback(request: Request, db: Session = Depends(get_db)):
+    if request.query_params.get("mock"):
+         # Mock flow
+         user_info = {
+             "sub": "test-mock-sub",
+             "email": "test@example.com",
+             "name": "Test User",
+             "picture": ""
+         }
+    else:
+        try:
+            token = await oauth.google.authorize_access_token(request)
+            user_info = token.get('userinfo')
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    if not user_info:
+        raise HTTPException(status_code=400, detail="Failed to fetch user info")
+
+    google_sub = user_info.get("sub")
+    email = user_info.get("email")
+    name = user_info.get("name")
+    picture_url = user_info.get("picture")
+
+    user = db.query(models.User).filter(models.User.google_sub == google_sub).first()
+    if not user:
+        # Try falling back to email lookup
+        user = db.query(models.User).filter(models.User.email == email).first()
+        if user:
+            user.google_sub = google_sub
+            user.name = name
+            user.picture_url = picture_url
+        else:
+            user = models.User(
+                email=email,
+                google_sub=google_sub,
+                name=name,
+                picture_url=picture_url
+            )
+            db.add(user)
+    else:
+         # Update existing
+         user.name = name
+         user.picture_url = picture_url
+
+    db.commit()
+    db.refresh(user)
+
+    # Generate JWT token
+    access_token_expires = timedelta(minutes=JWT_EXPIRE_MINUTES)
+    expire = datetime.utcnow() + access_token_expires
+    to_encode = {"sub": user.id, "exp": expire}
+    encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+    # Redirect to frontend with token
+    redirect_url = f"{FRONTEND_URL}/dashboard?token={encoded_jwt}"
+    return RedirectResponse(url=redirect_url)
+
+
+@app.get("/api/auth/me")
+async def get_current_user_profile(current_user: models.User = Depends(get_current_user)):
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "name": current_user.name,
+        "picture_url": current_user.picture_url
+    }
+
 
 def log_event(event_type: str, data: dict):
     """
@@ -127,33 +248,115 @@ async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Sessio
 
 # --- Trips Sync APIs ---
 
+import uuid
+
+@app.get("/api/trips")
+async def get_trips(current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Returns a list of trips for the current user.
+    """
+    trips = db.query(models.Trip).filter(models.Trip.user_id == current_user.id).all()
+
+    # Optional: We might want to return basic meta info like item count
+    return [
+        {
+            "id": t.id,
+            "title": t.title,
+            "created_at": t.created_at,
+            "is_public": t.is_public
+        }
+        for t in trips
+    ]
+
+
 @app.post("/api/trips")
-async def create_trip(request: dict, db: Session = Depends(get_db)):
+async def create_trip(request: dict, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
-    Creates a new Trip associated with a User.
-
-    Currently implements a mock authentication system for demonstration,
-    associating all new trips with 'test-user-id'.
+    Creates a new Trip associated with the current User.
     """
-    # Mock user ID for now
-    user_id = "test-user-id"
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user:
-        user = models.User(id=user_id, email="test@example.com")
-        db.add(user)
-        db.commit()
-
+    trip_id = request.get("id") or str(uuid.uuid4())
     trip = models.Trip(
-        id=request.get("id"),
-        user_id=user_id,
+        id=trip_id,
+        user_id=current_user.id,
         title=request.get("title", "New Trip")
     )
     db.add(trip)
     db.commit()
     return {"status": "success", "trip_id": trip.id}
 
+
+@app.get("/api/trips/{trip_id}")
+async def get_trip(trip_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Retrieves a full trip state (Days and Items) by its ID.
+    Enforces ownership.
+    """
+    trip = db.query(models.Trip).filter(models.Trip.id == trip_id).first()
+    if not trip:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if trip.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this trip")
+
+    return _serialize_trip(trip, db)
+
+
+def _serialize_trip(trip, db):
+    # Construct the Zustand-compatible 'days' payload
+    days_payload = []
+
+    # We need places for triplist
+    place_ids = set()
+
+    for day in sorted(trip.days, key=lambda d: d.day_index):
+        plan_payload = []
+        for item in sorted(day.items, key=lambda i: i.sort_order):
+            place_ids.add(item.place_id)
+            plan_payload.append({
+                "id": item.place_id,
+                "uniqueId": item.id,
+                "userDuration": item.user_duration,
+                "lockedArrivalTime": item.locked_arrival_time
+            })
+
+        if day.start_hotel_place_id:
+            place_ids.add(day.start_hotel_place_id)
+        if day.end_hotel_place_id:
+            place_ids.add(day.end_hotel_place_id)
+
+        days_payload.append({
+            "id": day.id,
+            "startTime": day.start_time,
+            "plan": plan_payload,
+            "startHotel": {"id": day.start_hotel_place_id} if day.start_hotel_place_id else None,
+            "endHotel": {"id": day.end_hotel_place_id} if day.end_hotel_place_id else None
+        })
+
+    places = db.query(models.Place).filter(models.Place.id.in_(place_ids)).all()
+    triplist = [
+        {
+            "id": p.id,
+            "name": p.name,
+            "lat": p.lat,
+            "lng": p.lng,
+            "recommendedDuration": p.recommended_duration
+        }
+        for p in places if not p.google_place_id.startswith("dummy_")
+    ]
+
+    return {
+        "id": trip.id,
+        "title": trip.title,
+        "is_public": trip.is_public,
+        "share_token": trip.share_token,
+        "state": {
+            "days": days_payload,
+            "triplist": triplist
+        }
+    }
+
+
 @app.patch("/api/trips/{trip_id}")
-async def update_trip(trip_id: str, request: dict, db: Session = Depends(get_db)):
+async def update_trip(trip_id: str, request: dict, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     Synchronizes the full trip state (Days and Items) from the frontend to the backend.
 
@@ -170,9 +373,10 @@ async def update_trip(trip_id: str, request: dict, db: Session = Depends(get_db)
 
     trip = db.query(models.Trip).filter(models.Trip.id == trip_id).first()
     if not trip:
-        trip = models.Trip(id=trip_id, user_id="test-user-id", title="Synced Trip")
-        db.add(trip)
-        db.commit()
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    if trip.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to edit this trip")
 
     # Clear old days/items for this trip
     db.query(models.TripItem).filter(models.TripItem.day_id.in_([day.id for day in trip.days])).delete(synchronize_session=False)
@@ -232,6 +436,114 @@ async def update_trip(trip_id: str, request: dict, db: Session = Depends(get_db)
     db.add(event)
     db.commit()
     return {"status": "success"}
+
+
+@app.delete("/api/trips/{trip_id}")
+async def delete_trip(trip_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Deletes a trip and all its dependent days and items.
+    """
+    trip = db.query(models.Trip).filter(models.Trip.id == trip_id).first()
+    if not trip:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if trip.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this trip")
+
+    # Days and Items should ideally be deleted via cascade in DB, but let's do it manually just in case
+    db.query(models.TripItem).filter(models.TripItem.day_id.in_([day.id for day in trip.days])).delete(synchronize_session=False)
+    db.query(models.TripDay).filter(models.TripDay.trip_id == trip_id).delete()
+    db.delete(trip)
+    db.commit()
+    return {"status": "success"}
+
+
+@app.post("/api/trips/{trip_id}/duplicate")
+async def duplicate_trip(trip_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Duplicates an existing trip, generating new UUIDs for the trip, days, and items.
+    """
+    original_trip = db.query(models.Trip).filter(models.Trip.id == trip_id).first()
+    if not original_trip:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if original_trip.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to duplicate this trip")
+
+    new_trip_id = str(uuid.uuid4())
+    new_trip = models.Trip(
+        id=new_trip_id,
+        user_id=current_user.id,
+        title=f"Copy of {original_trip.title}"
+    )
+    db.add(new_trip)
+
+    for day in original_trip.days:
+        new_day_id = str(uuid.uuid4())
+        new_day = models.TripDay(
+            id=new_day_id,
+            trip_id=new_trip_id,
+            day_index=day.day_index,
+            start_time=day.start_time,
+            start_hotel_place_id=day.start_hotel_place_id,
+            end_hotel_place_id=day.end_hotel_place_id
+        )
+        db.add(new_day)
+
+        for item in day.items:
+            new_item = models.TripItem(
+                id=str(uuid.uuid4()),
+                day_id=new_day_id,
+                place_id=item.place_id,
+                sort_order=item.sort_order,
+                user_duration=item.user_duration,
+                locked_arrival_time=item.locked_arrival_time
+            )
+            db.add(new_item)
+
+    db.commit()
+    return {"status": "success", "trip_id": new_trip_id}
+
+
+import secrets
+
+@app.post("/api/trips/{trip_id}/share")
+async def share_trip(trip_id: str, request: dict, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Toggles public sharing and generates/removes a share token.
+    """
+    trip = db.query(models.Trip).filter(models.Trip.id == trip_id).first()
+    if not trip:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if trip.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to share this trip")
+
+    is_public = request.get("is_public", True)
+    trip.is_public = is_public
+
+    if is_public and not trip.share_token:
+        trip.share_token = secrets.token_urlsafe(16)
+    elif not is_public:
+        trip.share_token = None
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "is_public": trip.is_public,
+        "share_token": trip.share_token
+    }
+
+
+@app.get("/api/share/{share_token}")
+async def get_shared_trip(share_token: str, db: Session = Depends(get_db)):
+    """
+    Public, read-only access to a trip via its share token.
+    """
+    trip = db.query(models.Trip).filter(models.Trip.share_token == share_token, models.Trip.is_public == True).first()
+    if not trip:
+        raise HTTPException(status_code=404, detail="Shared trip not found or is private")
+
+    return _serialize_trip(trip, db)
+
 
 @app.post("/api/routes/compute")
 async def compute_routes(request: dict, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):

@@ -40,7 +40,8 @@ function SortablePlaceItem({
   updatePlaceDuration,
   updateTravelSegment,
   calculateTravelTime,
-  calculatingId
+  calculatingId,
+  readOnly
 }: {
   place: DayPlanPlace;
   index: number;
@@ -55,6 +56,7 @@ function SortablePlaceItem({
   updateTravelSegment: (dayId: string, uniqueId: string, segment: any) => void;
   calculateTravelTime: (index: number, mode: 'DRIVING' | 'WALKING' | 'TRANSIT') => void;
   calculatingId: string | null;
+  readOnly?: boolean;
 }) {
   const {
     attributes,
@@ -232,11 +234,13 @@ function SortablePlaceItem({
                         value={place.lockedArrivalTime}
                         onChange={(e) => updateLockedArrivalTime(activeDayId, place.uniqueId, e.target.value || undefined)}
                         className="bg-transparent border-none focus:ring-0 p-0 text-sm w-12"
+                        disabled={readOnly}
                       />
                       <button
                         onClick={() => updateLockedArrivalTime(activeDayId, place.uniqueId, undefined)}
                         className="ml-1 text-blue-400 hover:text-blue-600 focus:outline-none"
                         title="Unlock auto-calculation"
+                        disabled={readOnly}
                       >
                         <Lock className="w-3 h-3" />
                       </button>
@@ -246,9 +250,10 @@ function SortablePlaceItem({
                       className="flex items-center text-sm font-mono text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded px-1.5 py-0.5 transition-colors group"
                       onClick={() => updateLockedArrivalTime(activeDayId, place.uniqueId, arrivalTime)}
                       title="Click to lock this arrival time"
+                      disabled={readOnly}
                     >
                       {arrivalTime}
-                      <LockOpen className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      {!readOnly && <LockOpen className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />}
                     </button>
                   )}
 
@@ -278,6 +283,7 @@ function SortablePlaceItem({
                 value={place.userDuration}
                 onChange={(e) => updatePlaceDuration(activeDayId, place.uniqueId, Number(e.target.value) || 0)}
                 className="w-16 text-sm border rounded px-1 py-0.5"
+                disabled={readOnly}
               />
             </div>
           </div>
@@ -291,7 +297,7 @@ function SortablePlaceItem({
  * Main component for assembling and managing the itinerary of a specific day.
  * Includes drag-and-drop, hotel selection, and cascading time calculations.
  */
-export function DayPlan() {
+export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
   const { triplist, days, activeDayId, setActiveDay, addDay, removeDay, setDayStartTime, updatePlaceDuration, removeFromDayPlan, updateTravelSegment, reorderDayPlan, setStartHotel, setEndHotel, updateEndHotelTravel, updateLockedArrivalTime } = useTripStore();
   const [calculatingId, setCalculatingId] = useState<string | null>(null);
 
@@ -543,6 +549,7 @@ export function DayPlan() {
             value={dayStartTime}
             onChange={(e) => setDayStartTime(activeDay.id, e.target.value)}
             className="bg-transparent border-none focus:ring-0 text-sm font-medium text-gray-800 p-0"
+            disabled={readOnly}
           />
         </div>
       </div>
@@ -555,6 +562,7 @@ export function DayPlan() {
           className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white"
           value={activeDay.startHotelId || ''}
           onChange={(e) => setStartHotel(activeDay.id, e.target.value || undefined)}
+          disabled={readOnly}
         >
           <option value="">(No start hotel selected)</option>
           {triplist.map(p => (
@@ -636,6 +644,7 @@ export function DayPlan() {
               className="flex-1 text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white"
               value={activeDay.endHotelId || ''}
               onChange={(e) => setEndHotel(activeDay.id, e.target.value || undefined)}
+              disabled={readOnly}
             >
               <option value="">(No end hotel selected)</option>
               {triplist.map(p => (

@@ -10,7 +10,7 @@ const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
  * Component for managing the user's pool of saved locations ("Triplist").
  * Integrates with Google Places API (New) via a debounced fetch for autocompletion.
  */
-export function Triplist() {
+export function Triplist({ readOnly = false }: { readOnly?: boolean }) {
   const [inputValue, setInputValue] = useState('');
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -91,27 +91,30 @@ export function Triplist() {
       <h2 className="text-lg font-bold mb-4 text-gray-800 hidden">My Saved Places</h2>
 
       <form onSubmit={handleManualAdd} className="mb-4 relative">
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <MapPin className="h-5 w-5 text-gray-400" />
+        {!readOnly && (
+          <div className="flex items-center space-x-2">
+            <div className="relative flex-1">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <MapPin className="h-5 w-5 text-gray-400" />
+              </div>
+              <input
+                ref={inputRef}
+                type="text"
+                value={inputValue}
+                onChange={(e) => {
+                  setInputValue(e.target.value);
+                  setError(null);
+                }}
+                placeholder="Search for a place..."
+                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm shadow-sm"
+                disabled={readOnly}
+              />
             </div>
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputValue}
-              onChange={(e) => {
-                setInputValue(e.target.value);
-                setError(null);
-              }}
-              placeholder="Search for a place..."
-              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm shadow-sm"
-            />
           </div>
-        </div>
+        )}
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
-        {suggestions.length > 0 && (
+        {!readOnly && suggestions.length > 0 && (
           <ul className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto">
             {suggestions.map((suggestion) => (
               <li
@@ -141,29 +144,33 @@ export function Triplist() {
                       <p className="text-xs text-gray-600 mt-1 italic">{place.description}</p>
                     )}
                   </div>
-                  <button
-                    onClick={() => removeFromTriplist(place.id)}
-                    className="text-red-400 hover:text-red-700 text-xs opacity-0 group-hover:opacity-100 transition-opacity ml-2"
-                  >
-                    Remove
-                  </button>
+                  {!readOnly && (
+                    <button
+                      onClick={() => removeFromTriplist(place.id)}
+                      className="text-red-400 hover:text-red-700 text-xs opacity-0 group-hover:opacity-100 transition-opacity ml-2"
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
 
                 <div className="mt-3 relative bg-gray-50 p-2 rounded-md border border-gray-100">
-                  <div className="flex flex-col gap-2">
-                     <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Add to Plan:</span>
-                     <div className="flex gap-2 overflow-x-auto scrollbar-hide py-1">
-                        {days.map((day, idx) => (
-                          <button
-                            key={day.id}
-                            onClick={() => addToDayPlan(day.id, place)}
-                            className="px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-md shadow-sm border border-blue-200 whitespace-nowrap transition-colors"
-                          >
-                            + Day {idx + 1}
-                          </button>
-                        ))}
-                     </div>
-                  </div>
+                  {!readOnly && (
+                    <div className="flex flex-col gap-2 w-full mt-3 pt-3 border-t border-gray-100">
+                       <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Add to Plan:</span>
+                       <div className="flex gap-2 overflow-x-auto scrollbar-hide py-1">
+                          {days.map((day, idx) => (
+                            <button
+                              key={day.id}
+                              onClick={() => addToDayPlan(day.id, place)}
+                              className="px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-md shadow-sm border border-blue-200 whitespace-nowrap transition-colors"
+                            >
+                              + Day {idx + 1}
+                            </button>
+                          ))}
+                       </div>
+                    </div>
+                  )}
                 </div>
               </li>
             ))}

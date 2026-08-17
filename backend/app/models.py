@@ -16,6 +16,9 @@ class User(Base):
     __tablename__ = "users"
     id = Column(String, primary_key=True, default=generate_uuid)
     email = Column(String, unique=True, index=True)
+    google_sub = Column(String, unique=True, index=True, nullable=True)
+    name = Column(String, nullable=True)
+    picture_url = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     trips = relationship("Trip", back_populates="user")
@@ -43,6 +46,7 @@ class Trip(Base):
     user_id = Column(String, ForeignKey("users.id"))
     title = Column(String)
     is_public = Column(Boolean, default=False)
+    share_token = Column(String, unique=True, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="trips")
