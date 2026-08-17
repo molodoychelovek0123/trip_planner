@@ -28,6 +28,9 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
+from .ai_router import router as ai_router
+app.include_router(ai_router, prefix="/api/ai", tags=["ai"])
+
 from starlette.middleware.sessions import SessionMiddleware
 app.add_middleware(SessionMiddleware, secret_key="some-random-string")
 
