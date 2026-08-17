@@ -8,6 +8,8 @@ import os
 from dotenv import load_dotenv
 from .database import get_db, engine
 from . import models
+from .routers import importer
+from .services import scheduler
 from authlib.integrations.starlette_client import OAuth
 from fastapi import Request
 from fastapi.responses import RedirectResponse
@@ -27,6 +29,7 @@ GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/ap
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+app.include_router(importer.router)
 
 from starlette.middleware.sessions import SessionMiddleware
 app.add_middleware(SessionMiddleware, secret_key="some-random-string")
@@ -494,7 +497,12 @@ async def update_trip(trip_id: str, request: dict, current_user: models.User = D
              db.add(item_model)
 
     db.commit()
-    # Need to run synchronously inside view to access db if not using background task wrapper
+    
+    # Recalculate timelines for all days
+    for day_data in days_data:
+        day_id = day_data.get('id')
+        await scheduler.calculate_day_timeline(day_id, db, GOOGLE_MAPS_API_KEY)
+
     event = models.EventLog(event_type="trip_synced", data_json=json.dumps({"trip_id": trip_id, "size_bytes": len(json.dumps(request))}))
     db.add(event)
     db.commit()
