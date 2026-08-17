@@ -4,6 +4,7 @@ import { Sidebar } from './Sidebar';
 import { MapView } from './MapView';
 import { useAuthStore, useTripStore } from '../store';
 import { Share2 } from 'lucide-react';
+import { UserProfile } from './UserProfile';
 
 export function TripEditor() {
   const { tripId } = useParams();
@@ -67,6 +68,7 @@ export function TripEditor() {
               <button onClick={() => alert("Share functionality to be implemented in a modal")} className="text-gray-600 hover:text-blue-600 p-1 flex items-center text-sm">
                   <Share2 className="w-4 h-4 mr-1" /> Share
               </button>
+              <UserProfile />
           </div>
       </div>
 

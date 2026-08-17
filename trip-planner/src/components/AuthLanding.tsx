@@ -1,4 +1,5 @@
 import { Clock, Zap, WifiOff, MapPin, Compass } from 'lucide-react';
+import { UserProfile } from './UserProfile';
 
 export function AuthLanding() {
   const googleAuthUrl = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/auth/google/url`;
@@ -11,20 +12,7 @@ export function AuthLanding() {
           <Compass className="h-8 w-8 text-blue-600" />
           <span className="text-2xl font-bold tracking-tight">TripPlanner</span>
         </div>
-        <div className="flex space-x-4">
-          <a
-            href={googleAuthUrl}
-            className="text-slate-600 hover:text-slate-900 font-medium px-4 py-2"
-          >
-            Log in
-          </a>
-          <a
-            href={googleAuthUrl}
-            className="bg-slate-900 hover:bg-slate-800 text-white font-medium px-5 py-2 rounded-full transition-colors"
-          >
-            Sign up
-          </a>
-        </div>
+        <UserProfile />
       </nav>
 
       {/* Hero Section */}
