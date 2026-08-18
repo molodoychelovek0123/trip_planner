@@ -8,7 +8,7 @@ import os
 from dotenv import load_dotenv
 from .database import get_db, engine
 from . import models
-from .routers import importer
+from .routers import importer, expenses, flights
 from .services import scheduler
 from authlib.integrations.starlette_client import OAuth
 from fastapi import Request
@@ -30,6 +30,8 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 app.include_router(importer.router)
+app.include_router(expenses.router)
+app.include_router(flights.router)
 
 from starlette.middleware.sessions import SessionMiddleware
 app.add_middleware(SessionMiddleware, secret_key="some-random-string")
@@ -406,6 +408,9 @@ def _serialize_trip(trip, db):
         for p in places if not p.google_place_id.startswith("dummy_")
     ]
 
+    expenses_data = db.query(models.Expense).filter(models.Expense.trip_id == trip.id).all()
+    flights_data = db.query(models.Flight).filter(models.Flight.trip_id == trip.id).all()
+
     return {
         "id": trip.id,
         "title": trip.title,
@@ -413,7 +418,9 @@ def _serialize_trip(trip, db):
         "share_token": trip.share_token,
         "state": {
             "days": days_payload,
-            "triplist": triplist
+            "triplist": triplist,
+            "expenses": [{"id": e.id, "title": e.title, "amount": e.amount, "currency": e.currency, "category": e.category} for e in expenses_data],
+            "flights": [{"id": f.id, "flight_number": f.flight_number, "departure_airport": f.departure_airport, "arrival_airport": f.arrival_airport, "departure_time": f.departure_time.isoformat() if f.departure_time else None, "arrival_time": f.arrival_time.isoformat() if f.arrival_time else None, "price": f.price} for f in flights_data]
         }
     }
 
@@ -637,7 +644,28 @@ async def compute_routes(request: dict, background_tasks: BackgroundTasks, db: S
 
     # We skip caching if origin/dest are missing or coordinates are used directly
     if origin_id and dest_id:
-        cache_key = f"{mode}_{routing_pref}"
+        departure_time = request.get("departureTime", "12:00")
+        try:
+            # If departureTime is ISO timestamp, parse it
+            if "T" in departure_time:
+                dt = datetime.fromisoformat(departure_time.replace("Z", "+00:00"))
+                hours = dt.hour
+            else:
+                # Handle HH:MM string
+                hours = int(departure_time.split(":")[0])
+        except Exception:
+            hours = 12
+
+        if 6 <= hours < 12:
+            time_of_day = "morning"
+        elif 12 <= hours < 17:
+            time_of_day = "day"
+        elif 17 <= hours < 22:
+            time_of_day = "evening"
+        else:
+            time_of_day = "night"
+
+        cache_key = f"{mode}_{routing_pref}_{time_of_day}"
 
         # 1. Check cache (24h TTL)
         cutoff = datetime.utcnow() - timedelta(hours=24)
@@ -679,7 +707,6 @@ async def compute_routes(request: dict, background_tasks: BackgroundTasks, db: S
 
         # 3. Save to Cache
         if origin_id and dest_id and data.get("routes"):
-            cache_key = f"{mode}_{routing_pref}"
             new_cache = models.RouteCache(
                 origin_id=origin_id,
                 dest_id=dest_id,

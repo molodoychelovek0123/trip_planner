@@ -129,3 +129,32 @@ class EventLog(Base):
     event_type = Column(String)
     data_json = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class Expense(Base):
+    """
+    Tracks budget and expenses for a trip.
+    """
+    __tablename__ = "expenses"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    trip_id = Column(String, ForeignKey("trips.id"))
+    title = Column(String)
+    amount = Column(Float)
+    currency = Column(String, default="USD")
+    category = Column(String) # e.g. 'Flights', 'Lodging', 'Food', 'Activities', 'Other'
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Flight(Base):
+    """
+    Tracks flights associated with a trip.
+    """
+    __tablename__ = "flights"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    trip_id = Column(String, ForeignKey("trips.id"))
+    flight_number = Column(String)
+    departure_airport = Column(String)
+    arrival_airport = Column(String)
+    departure_time = Column(DateTime)
+    arrival_time = Column(DateTime)
+    confirmation_code = Column(String, nullable=True)
+    price = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

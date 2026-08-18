@@ -8,7 +8,7 @@ import type { PlacePredictionWrapper } from '../types/googlePlaces';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
-export function InlineSearch({ readOnly = false }: { readOnly?: boolean }) {
+export function InlineSearch({ dayId, readOnly = false }: { dayId?: string, readOnly?: boolean }) {
   const [inputValue, setInputValue] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
@@ -75,10 +75,11 @@ export function InlineSearch({ readOnly = false }: { readOnly?: boolean }) {
   }, [debouncedQuery, isOpen]);
 
   const handlePlaceSelection = async (suggestion: SuggestionItem) => {
-    if (!activeDayId) return;
+    const targetDayId = dayId || activeDayId;
+    if (!targetDayId) return;
 
     if (suggestion.isLocal && suggestion.place) {
-        addToDayPlan(activeDayId, suggestion.place);
+        addToDayPlan(targetDayId, suggestion.place);
         setInputValue('');
         setSuggestions([]);
         setIsOpen(false);
@@ -104,7 +105,7 @@ export function InlineSearch({ readOnly = false }: { readOnly?: boolean }) {
         };
 
         addToTriplist(newPlace);
-        addToDayPlan(activeDayId, newPlace);
+        addToDayPlan(targetDayId, newPlace);
 
         setInputValue('');
         setSuggestions([]);

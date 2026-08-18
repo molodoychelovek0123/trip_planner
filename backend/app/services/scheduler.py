@@ -4,12 +4,32 @@ import json
 from datetime import datetime
 from .. import models
 
-async def get_route(origin_place_id: str, dest_place_id: str, db: Session, api_key: str, mode: str = "TRANSIT"):
+async def get_route(origin_place_id: str, dest_place_id: str, db: Session, api_key: str, departure_time: str = "12:00", mode: str = "TRANSIT"):
+    try:
+        if "T" in departure_time:
+            dt = datetime.fromisoformat(departure_time.replace("Z", "+00:00"))
+            hours = dt.hour
+        else:
+            hours = int(departure_time.split(":")[0])
+    except Exception:
+        hours = 12
+
+    if 6 <= hours < 12:
+        time_of_day = "morning"
+    elif 12 <= hours < 17:
+        time_of_day = "day"
+    elif 17 <= hours < 22:
+        time_of_day = "evening"
+    else:
+        time_of_day = "night"
+
+    cache_key = f"{mode}__{time_of_day}"
+
     # 1. Check RouteCache
     cached_route = db.query(models.RouteCache).filter(
         models.RouteCache.origin_id == origin_place_id,
         models.RouteCache.dest_id == dest_place_id,
-        models.RouteCache.mode == mode
+        models.RouteCache.mode == cache_key
     ).first()
     
     if cached_route:
@@ -23,6 +43,12 @@ async def get_route(origin_place_id: str, dest_place_id: str, db: Session, api_k
             "travelMode": mode,
             "routingPreference": "ROUTING_PREFERENCE_UNSPECIFIED"
         }
+        
+        # Include departure time if it's a future ISO string, but for now we just cache by time of day.
+        # Google Routes API expects departureTime in RFC3339 UTC format. 
+        # Since we just want to leverage the cache segmentation, we can omit it in the Google call 
+        # or pass a dummy date with the correct hour if we really need traffic data.
+        # For this implementation, we rely on the segmented caching.
         
         headers = {
             "Content-Type": "application/json",
@@ -38,7 +64,7 @@ async def get_route(origin_place_id: str, dest_place_id: str, db: Session, api_k
                 new_cache = models.RouteCache(
                     origin_id=origin_place_id,
                     dest_id=dest_place_id,
-                    mode=mode,
+                    mode=cache_key,
                     data_json=json.dumps(data)
                 )
                 db.add(new_cache)
@@ -66,26 +92,50 @@ async def calculate_day_timeline(trip_day_id: str, db: Session, api_key: str):
     # We trace the route: start_hotel -> item 1 -> item 2 -> ... -> end_hotel
     current_origin_id = day.start_hotel_place_id
     
-    for item in items:
+    def time_to_minutes(time_str: str) -> int:
+        try:
+            h, m = map(int, time_str.split(':'))
+            return h * 60 + m
+        except:
+            return 9 * 60
+
+    def minutes_to_time(minutes: int) -> str:
+        h = (minutes // 60) % 24
+        m = minutes % 60
+        return f"{h:02d}:{m:02d}"
+
+    current_minutes = time_to_minutes(day.start_time)
+    
+    for index, item in enumerate(items):
         dest_id = item.place_id
+        
+        if item.locked_arrival_time:
+            current_minutes = time_to_minutes(item.locked_arrival_time)
+            
+        departure_time_str = minutes_to_time(current_minutes)
+
         if current_origin_id and dest_id:
-            route_data = await get_route(current_origin_id, dest_id, db, api_key, mode="TRANSIT")
+            route_data = await get_route(current_origin_id, dest_id, db, api_key, departure_time=departure_time_str, mode="TRANSIT")
             if route_data and "routes" in route_data and len(route_data["routes"]) > 0:
                 route = route_data["routes"][0]
+                duration_seconds = int(route.get("duration", "0s").replace("s", ""))
                 travel_segment = {
                     "distanceMeters": route.get("distanceMeters", 0),
-                    "durationSeconds": int(route.get("duration", "0s").replace("s", "")),
+                    "durationSeconds": duration_seconds,
                 }
                 item.travel_data_json = json.dumps(travel_segment)
+                current_minutes += duration_seconds // 60
             else:
                 item.travel_data_json = json.dumps({"error": "No route found", "durationSeconds": 0})
         
-        # Advance the origin
+        # Advance the origin and time
         current_origin_id = dest_id
+        current_minutes += item.user_duration
         
     # Route from last item back to end hotel
     if current_origin_id and day.end_hotel_place_id:
-        route_data = await get_route(current_origin_id, day.end_hotel_place_id, db, api_key, mode="TRANSIT")
+        departure_time_str = minutes_to_time(current_minutes)
+        route_data = await get_route(current_origin_id, day.end_hotel_place_id, db, api_key, departure_time=departure_time_str, mode="TRANSIT")
         if route_data and "routes" in route_data and len(route_data["routes"]) > 0:
             route = route_data["routes"][0]
             travel_segment = {

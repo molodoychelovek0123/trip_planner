@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useTripStore } from '../store';
 import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
 import { MapContextMenu } from './MapContextMenu';
@@ -30,6 +30,15 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
   const { days, activeDayId, triplist } = useTripStore();
   const activeDay = days.find(d => d.id === activeDayId) || days[0];
   const dayPlan = activeDay?.plan || [];
+  const flights = activeDay?.flights || [];
+
+  // Create a geo hash to avoid re-rendering map when costs or durations change
+  const geoHash = useMemo(() => {
+    const sTrip = triplist.map(p => `${p.id}:${p.lat}:${p.lng}`);
+    const sPlan = dayPlan.map(p => `${p.id}:${p.lat}:${p.lng}:${p.travelFromPrevious?.durationMinutes || 0}:${p.travelFromPrevious?.mode || ''}`);
+    const sFlights = flights.map(p => `${p.uniqueId}:${p.lat}:${p.lng}`);
+    return JSON.stringify({ activeDayId, sTrip, sPlan, sFlights });
+  }, [triplist, dayPlan, flights, activeDayId]);
 
   useEffect(() => {
     if (!GOOGLE_MAPS_API_KEY) {
@@ -136,6 +145,7 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
     // Filter out points without valid coordinates so Google Maps never
     // receives undefined/NaN (which previously caused setPosition errors).
     const validDayPlan = dayPlan.filter(hasValidCoords);
+    const validFlights = flights.filter(hasValidCoords);
 
     validDayPlan.forEach((place, index) => {
       const marker = new window.google.maps.Marker({
@@ -144,20 +154,40 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
         title: place.name,
         label: {
           text: (index + 1).toString(),
-          color: 'white',
-          fontWeight: 'bold',
+          color: '#ffffff',
+          fontWeight: 'bold'
         },
         icon: {
           path: window.google.maps.SymbolPath.CIRCLE,
           fillColor: '#3B82F6', // Tailwind blue-500
           fillOpacity: 1,
-          strokeColor: '#fff',
+          strokeColor: '#ffffff',
           strokeWeight: 2,
           scale: 12,
         }
       });
       markersRef.current.push(marker);
       bounds.extend({ lat: place.lat, lng: place.lng });
+      hasPoints = true;
+    });
+
+    validFlights.forEach((flight) => {
+      const marker = new window.google.maps.Marker({
+        position: { lat: flight.lat, lng: flight.lng },
+        map: mapInstance,
+        title: flight.name,
+        icon: {
+          path: "M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z",
+          fillColor: '#8B5CF6', // Purple for flights
+          fillOpacity: 1,
+          strokeColor: '#ffffff',
+          strokeWeight: 1,
+          scale: 1,
+          anchor: new window.google.maps.Point(12, 12)
+        }
+      });
+      markersRef.current.push(marker);
+      bounds.extend({ lat: flight.lat, lng: flight.lng });
       hasPoints = true;
     });
 
@@ -239,7 +269,8 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
         });
       }
     }
-  }, [map, dayPlan, triplist]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, geoHash]);
 
   return (
     <div className="w-full h-full relative">

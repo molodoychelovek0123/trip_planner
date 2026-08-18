@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { useTripStore, type DayPlanPlace, type RouteAlternative, type TravelSegment, type TransitBadge, type RouteStep } from '../store';
-import { Car, Footprints, Bus, Clock, Plus, Trash2, GripVertical, Hotel, AlertCircle, LockOpen, Lock } from 'lucide-react';
+import { Car, Footprints, Bus, Clock, GripVertical, Hotel, AlertCircle, LockOpen, Lock, Plus, Trash2 } from 'lucide-react';
 import { SmartSuggestions } from './SmartSuggestions';
 import { InlineSearch } from './InlineSearch';
+import { AddFlightModal } from './AddFlightModal';
+import { FlightCard } from './FlightCard';
+import { getAirportLocation } from '../utils/airports';
 import type { ComputeRouteRequest, Route, RouteLeg, RouteStepDetail } from '../types/googleRoutes';
 import {
   DndContext,
@@ -41,6 +44,7 @@ function SortablePlaceItem({
   updatePlaceDuration,
   updateTravelSegment,
   calculateTravelTime,
+  updatePlaceCost,
   calculatingId,
   readOnly
 }: {
@@ -56,9 +60,11 @@ function SortablePlaceItem({
   updatePlaceDuration: (dayId: string, uniqueId: string, duration: number) => void;
   updateTravelSegment: (dayId: string, uniqueId: string, segment: TravelSegment | undefined) => void;
   calculateTravelTime: (index: number, mode: 'DRIVING' | 'WALKING' | 'TRANSIT') => void;
+  updatePlaceCost: (dayId: string, uniqueId: string, cost: number | undefined, currency: string | undefined) => void;
   calculatingId: string | null;
   readOnly?: boolean;
 }) {
+
   const {
     attributes,
     listeners,
@@ -231,7 +237,9 @@ function SortablePlaceItem({
             <div className="flex justify-between">
               <div>
                 <div className="font-semibold text-lg text-gray-800">{place.name}</div>
-                <div className="flex items-center gap-2 mt-1">
+                <div className="text-sm text-gray-500">{place.city} &bull; {place.recommendedDuration} min suggested</div>
+              </div>
+              <div className="flex items-center gap-2 mt-1">
                   {place.lockedArrivalTime ? (
                     <div className="flex items-center text-sm font-mono border border-blue-500 bg-blue-50 text-blue-700 rounded px-1.5 py-0.5">
                       <input
@@ -264,7 +272,7 @@ function SortablePlaceItem({
 
                   <span className="text-gray-500 font-mono">— {departureTime}</span>
                   {isLate && (
-                    <div className="flex items-center text-red-500 text-xs font-medium ml-2 bg-red-50 px-1.5 py-0.5 rounded border border-red-200" title={`Projected arrival: ${minutesToTime(projectedArrivalMinutes)}`}>
+                    <div className="flex items-center text-orange-500 text-xs font-medium ml-2 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200" title={`Projected arrival: ${minutesToTime(projectedArrivalMinutes)}`}>
                       <AlertCircle className="w-3 h-3 mr-1" />
                       Late
                     </div>
@@ -281,20 +289,45 @@ function SortablePlaceItem({
               )}
             </div>
 
-            <div className="mt-3 flex items-center gap-2">
-              <label className="text-xs text-gray-500">Duration (min):</label>
-              <input
-                type="number"
-                min="0"
-                step="5"
-                value={place.userDuration}
-                onChange={(e) => updatePlaceDuration(activeDayId, place.uniqueId, Number(e.target.value) || 0)}
-                className="w-16 text-sm border rounded px-1 py-0.5"
-                disabled={readOnly}
-              />
+            <div className="mt-3 flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500">Duration (min):</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="5"
+                  value={place.userDuration}
+                  onChange={(e) => updatePlaceDuration(activeDayId, place.uniqueId, Number(e.target.value) || 0)}
+                  className="w-16 text-sm border rounded px-1 py-0.5 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500">Cost:</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={place.cost || ''}
+                  onChange={(e) => updatePlaceCost(activeDayId, place.uniqueId, e.target.value ? Number(e.target.value) : undefined, place.currency || 'USD')}
+                  placeholder="0.00"
+                  className="w-20 text-sm border rounded px-1 py-0.5 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={readOnly}
+                />
+                <select
+                  value={place.currency || 'USD'}
+                  onChange={(e) => updatePlaceCost(activeDayId, place.uniqueId, place.cost, e.target.value)}
+                  className="w-20 text-sm border rounded px-1 py-0.5 bg-gray-50 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={readOnly}
+                >
+                  <option value="USD">USD ($)</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="RUB">RUB (₽)</option>
+                  <option value="GBP">GBP (£)</option>
+                  <option value="JPY">JPY (¥)</option>
+                </select>
+              </div>
             </div>
           </div>
-        </div>
       </div>
     </div>
   );
@@ -305,8 +338,10 @@ function SortablePlaceItem({
  * Includes drag-and-drop, hotel selection, and cascading time calculations.
  */
 export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
-  const { triplist, days, activeDayId, setActiveDay, addDay, removeDay, setDayStartTime, updatePlaceDuration, removeFromDayPlan, updateTravelSegment, reorderDayPlan, setStartHotel, setEndHotel, updateEndHotelTravel, updateLockedArrivalTime } = useTripStore();
+  const { triplist, days, activeDayId, setActiveDay, addDay, removeDay, updatePlaceDuration, removeFromDayPlan, updateTravelSegment, reorderDayPlan, setStartHotel, setEndHotel, updateEndHotelTravel, updateLockedArrivalTime, setDayStartTime, updatePlaceCost } = useTripStore();
   const [calculatingId, setCalculatingId] = useState<string | null>(null);
+  const [showFlightModal, setShowFlightModal] = useState(false);
+  const [editingFlight, setEditingFlight] = useState<DayPlanPlace | undefined>(undefined);
 
   const activeDay = days.find(d => d.id === activeDayId) || days[0];
   const dayPlan = activeDay?.plan || [];
@@ -350,7 +385,7 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
       return;
     }
 
-    let origin, destination, isEndHotel = false;
+    let origin: any, destination: any, isEndHotel = false;
 
     if (index === -1) {
        // End hotel calculation
@@ -369,8 +404,27 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
     }
 
     try {
-      // Use the new Google Routes API (REST via fetch)
-      // https://developers.google.com/maps/documentation/routes/compute_route_directions
+      // Resolve lat/lng for flights
+      let originLat = origin.lat;
+      let originLng = origin.lng;
+      if (origin.type === 'FLIGHT' && origin.flightDetails) {
+         const airport = getAirportLocation(origin.flightDetails.arrivalAirport);
+         if (airport) {
+           originLat = airport.lat;
+           originLng = airport.lng;
+         }
+      }
+
+      let destLat = destination.lat;
+      let destLng = destination.lng;
+      if (destination.type === 'FLIGHT' && destination.flightDetails) {
+         const airport = getAirportLocation(destination.flightDetails.departureAirport);
+         if (airport) {
+           destLat = airport.lat;
+           destLng = airport.lng;
+         }
+      }
+
       const routingModeMap: Record<'DRIVING' | 'WALKING' | 'TRANSIT', 'DRIVE' | 'WALK' | 'TRANSIT'> = {
         'DRIVING': 'DRIVE',
         'WALKING': 'WALK',
@@ -378,8 +432,8 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
       };
 
       const requestBody: ComputeRouteRequest = {
-        origin: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } },
-        destination: { location: { latLng: { latitude: destination.lat, longitude: destination.lng } } },
+        origin: { location: { latLng: { latitude: originLat, longitude: originLng } } },
+        destination: { location: { latLng: { latitude: destLat, longitude: destLng } } },
         travelMode: routingModeMap[mode],
         computeAlternativeRoutes: true,
         "X-Goog-FieldMask": 'routes.duration,routes.distanceMeters,routes.description,routes.legs.steps.travelMode,routes.legs.steps.polyline.encodedPolyline,routes.legs.steps.transitDetails.transitLine.name,routes.legs.steps.transitDetails.transitLine.color,routes.legs.steps.transitDetails.transitLine.textColor,routes.legs.steps.transitDetails.transitLine.vehicle.type'
@@ -517,17 +571,17 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
   let currentMinutes = timeToMinutes(dayStartTime);
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col h-full bg-white">
       {/* Day Selector */}
-      <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+      <div className="flex items-center gap-2 p-4 border-b bg-gray-50 overflow-x-auto scrollbar-hide">
         {days.map((day, idx) => (
           <button
             key={day.id}
             onClick={() => setActiveDay(day.id)}
-            className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+            className={`px-4 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors border ${
               activeDay.id === day.id
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                : 'bg-white text-gray-700 border-gray-200 hover:border-blue-400 hover:text-blue-600'
             }`}
           >
             Day {idx + 1}
@@ -536,7 +590,7 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
         {!readOnly && (
           <button
             onClick={addDay}
-            className="p-1.5 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200"
+            className="p-1.5 rounded-full bg-white border border-dashed border-gray-300 text-gray-500 hover:border-gray-400 hover:text-gray-700 transition-colors"
             title="Add new day"
           >
             <Plus className="w-4 h-4" />
@@ -544,16 +598,28 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
         )}
       </div>
 
-      <div className="flex justify-between items-center mb-4">
-        <div className="flex items-center gap-2">
-           <h2 className="text-lg font-bold text-gray-800">Plan</h2>
-           {!readOnly && days.length > 1 && (
-             <button onClick={() => removeDay(activeDay.id)} className="text-red-400 hover:text-red-600 p-1" title="Delete current day">
-               <Trash2 className="w-4 h-4" />
-             </button>
-           )}
-        </div>
-        <div className="flex items-center space-x-2 bg-gray-100 px-3 py-1.5 rounded">
+      <div className="p-4 flex-1 overflow-y-auto">
+        <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold text-gray-800">Plan for Day</h2>
+            {!readOnly && days.length > 1 && (
+              <button onClick={() => removeDay(activeDay.id)} className="text-red-400 hover:text-red-600 p-1" title="Delete current day">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+            {!readOnly && (
+              <button
+                onClick={() => {
+                  setEditingFlight(undefined);
+                  setShowFlightModal(true);
+                }}
+                className="ml-2 text-xs font-semibold bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-100 transition-colors shadow-sm"
+              >
+                + Add Flight
+              </button>
+            )}
+          </div>
+          <div className="flex items-center space-x-2 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200">
           <Clock className="w-4 h-4 text-gray-600" />
           <input
             type="time"
@@ -581,73 +647,29 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
           ))}
         </select>
       </div>
+      {/* Render Flights at the top */}
+      {activeDay.flights && activeDay.flights.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-3">Scheduled Flights</h3>
+          {activeDay.flights.map(flight => (
+            <FlightCard
+              key={flight.uniqueId}
+              flight={flight}
+              readOnly={readOnly}
+              onEdit={() => {
+                setEditingFlight(flight);
+                setShowFlightModal(true);
+              }}
+              onRemove={() => useTripStore.getState().removeFlight(activeDay.id, flight.uniqueId)}
+            />
+          ))}
+        </div>
+      )}
 
       {dayPlan.length === 0 ? (
         <div className="text-center py-12 text-gray-500 border-2 border-dashed border-gray-200 rounded-lg">
           <p>No places added yet.</p>
           <p className="text-sm mt-1">Search for a place below to start planning.</p>
-        </div>
-      ) : readOnly ? (
-        <div className="space-y-4">
-          {dayPlan.map((place, index) => {
-            let currentMinutes = timeToMinutes(dayStartTime);
-
-            // Forward-calculate arrival time
-            let arrivalTimeMins = currentMinutes;
-            if (index === 0 && place.travelFromPrevious) {
-                arrivalTimeMins += place.travelFromPrevious.durationMinutes;
-            } else if (index > 0) {
-                // Find previous item's departure
-                let prevDep = timeToMinutes(dayStartTime);
-                for (let i = 0; i < index; i++) {
-                   const pItem = dayPlan[i];
-                   if (i === 0 && pItem.travelFromPrevious) prevDep += pItem.travelFromPrevious.durationMinutes;
-
-                   if (pItem.lockedArrivalTime) {
-                       prevDep = timeToMinutes(pItem.lockedArrivalTime);
-                   } else if (i > 0 && pItem.travelFromPrevious) {
-                       prevDep += pItem.travelFromPrevious.durationMinutes;
-                   }
-                   prevDep += pItem.userDuration;
-                }
-                if (place.travelFromPrevious) {
-                    arrivalTimeMins = prevDep + place.travelFromPrevious.durationMinutes;
-                } else {
-                    arrivalTimeMins = prevDep;
-                }
-            }
-
-            const projectedArrival = arrivalTimeMins;
-            if (place.lockedArrivalTime) {
-               const lockedMins = timeToMinutes(place.lockedArrivalTime);
-               currentMinutes = lockedMins;
-            }
-
-            const actualArrival = currentMinutes;
-            const departureMinutes = currentMinutes + place.userDuration;
-
-            currentMinutes = departureMinutes;
-
-            return (
-              <SortablePlaceItem
-                key={place.uniqueId}
-                place={place}
-                index={index}
-                activeDayId={activeDay.id}
-                startHotelId={activeDay.startHotelId}
-                currentMinutes={actualArrival}
-                projectedArrivalMinutes={projectedArrival}
-                minutesToTime={minutesToTime}
-                removeFromDayPlan={removeFromDayPlan}
-                updatePlaceDuration={updatePlaceDuration}
-                updateTravelSegment={updateTravelSegment}
-                calculateTravelTime={calculateTravelTime}
-                calculatingId={calculatingId}
-                updateLockedArrivalTime={updateLockedArrivalTime}
-                readOnly={readOnly}
-              />
-            );
-          })}
         </div>
       ) : (
         <DndContext
@@ -672,15 +694,14 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
                 currentMinutes += travelTime;
 
                 const projectedArrival = currentMinutes;
+                let actualArrival = currentMinutes;
+                let departureMinutes = currentMinutes + place.userDuration;
 
                 if (place.lockedArrivalTime) {
                    const lockedMins = timeToMinutes(place.lockedArrivalTime);
-                   currentMinutes = lockedMins; // Unconditionally lock time to prevent cascading shifts
+                   actualArrival = lockedMins;
+                   departureMinutes = lockedMins + place.userDuration;
                 }
-
-                const actualArrival = currentMinutes;
-                const departureMinutes = currentMinutes + place.userDuration;
-
                 currentMinutes = departureMinutes;
 
                 return (
@@ -699,6 +720,8 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
                     calculateTravelTime={calculateTravelTime}
                     calculatingId={calculatingId}
                     updateLockedArrivalTime={updateLockedArrivalTime}
+                    updatePlaceCost={updatePlaceCost}
+                    readOnly={readOnly}
                   />
                 );
               })}
@@ -706,6 +729,29 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
           </SortableContext>
         </DndContext>
       )}
+
+      {/* Warning if itinerary runs late for any flight */}
+      {!readOnly && activeDay.flights?.map(flight => {
+        if (!flight.flightDetails) return null;
+        const depTimeMins = timeToMinutes(flight.flightDetails.departureTime || '12:00');
+        const bufferMins = (flight.flightDetails.bufferHours || 2) * 60;
+        const requiredArrival = depTimeMins - bufferMins;
+        if (currentMinutes > requiredArrival) {
+          return (
+            <div key={`warning-${flight.uniqueId}`} className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+              <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold text-red-800">You might miss your flight!</h4>
+                <p className="text-xs text-red-600 mt-1">
+                  Your itinerary ends at {minutesToTime(currentMinutes)}, but you need to be at {flight.flightDetails.departureAirport} by {minutesToTime(requiredArrival)}.
+                </p>
+              </div>
+            </div>
+          );
+        }
+        return null;
+      })}
+
 
       {dayPlan.length > 0 && (
         <div className="mt-4 pt-4 border-t border-gray-200">
@@ -727,57 +773,74 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
           </div>
 
           {activeDay.endHotelId && (
-            <div className="mt-3 flex items-center justify-center relative">
-              <div className="absolute left-1/2 -ml-px w-0.5 h-full bg-gray-200" aria-hidden="true"></div>
-              <div className="relative z-10 bg-white p-2 border rounded-xl text-sm flex flex-col items-center gap-2 shadow-sm min-w-[200px]">
+            <div className="mt-2 text-sm text-gray-600 bg-gray-50 rounded-lg p-2 flex flex-col gap-2">
+              <div className="flex justify-between items-center px-1">
+                <span className="text-gray-500">Travel to end hotel:</span>
                 {activeDay.endHotelTravel ? (
-                  <div className="flex flex-col w-full">
-                    <div className="flex items-center justify-between px-2 mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-700 font-semibold">
-                          {activeDay.endHotelTravel.durationMinutes} min
-                        </span>
-                        <div className="flex gap-1 text-gray-400">
-                           {activeDay.endHotelTravel.mode === 'DRIVING' && <Car className="w-4 h-4 text-blue-500" />}
-                           {activeDay.endHotelTravel.mode === 'WALKING' && <Footprints className="w-4 h-4 text-green-500" />}
-                           {activeDay.endHotelTravel.mode === 'TRANSIT' && <Bus className="w-4 h-4 text-orange-500" />}
-                        </div>
-                      </div>
-                      {!readOnly && (
-                        <button
-                          className="text-xs text-blue-500 hover:text-blue-700 underline"
-                          onClick={() => updateEndHotelTravel(activeDay.id, undefined)}
-                        >
-                          Change mode
-                        </button>
-                      )}
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-gray-700">{activeDay.endHotelTravel.durationMinutes} min</span>
+                    <div className="flex gap-1 text-gray-400">
+                       {activeDay.endHotelTravel.mode === 'DRIVING' && <Car className="w-4 h-4 text-blue-500" />}
+                       {activeDay.endHotelTravel.mode === 'WALKING' && <Footprints className="w-4 h-4 text-green-500" />}
+                       {activeDay.endHotelTravel.mode === 'TRANSIT' && <Bus className="w-4 h-4 text-orange-500" />}
                     </div>
                   </div>
                 ) : (
-                  !readOnly && (
-                    <div className="flex items-center gap-2">
-                       <span className="text-gray-500 text-xs mr-2">Go to hotel:</span>
-                       <button onClick={() => calculateTravelTime(-1, 'DRIVING')} className="p-1 hover:bg-gray-100 rounded text-blue-600" disabled={calculatingId === 'end-hotel'}>
-                         <Car className="w-4 h-4" />
-                       </button>
-                       <button onClick={() => calculateTravelTime(-1, 'WALKING')} className="p-1 hover:bg-gray-100 rounded text-green-600" disabled={calculatingId === 'end-hotel'}>
-                         <Footprints className="w-4 h-4" />
-                       </button>
-                       <button onClick={() => calculateTravelTime(-1, 'TRANSIT')} className="p-1 hover:bg-gray-100 rounded text-orange-600" disabled={calculatingId === 'end-hotel'}>
-                         <Bus className="w-4 h-4" />
-                       </button>
-                       {calculatingId === 'end-hotel' && <span className="text-xs text-gray-400 animate-pulse">...</span>}
-                    </div>
-                  )
+                  <span className="text-xs italic text-gray-400">Not calculated</span>
                 )}
               </div>
+              
+              {activeDay.endHotelTravel ? (
+                <div className="flex justify-end gap-2 items-center px-1">
+                  {!readOnly && (
+                    <button
+                      className="text-xs text-blue-500 hover:text-blue-700 underline"
+                      onClick={() => updateEndHotelTravel(activeDay.id, undefined)}
+                    >
+                      Change mode
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center justify-end gap-2 px-1">
+                  <span className="text-gray-400 text-xs mr-2">Calculate:</span>
+                  <button onClick={() => calculateTravelTime(-1, 'DRIVING')} className="p-1 hover:bg-gray-200 rounded text-blue-600" disabled={calculatingId === 'end-hotel' || readOnly}>
+                    <Car className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => calculateTravelTime(-1, 'WALKING')} className="p-1 hover:bg-gray-200 rounded text-green-600" disabled={calculatingId === 'end-hotel' || readOnly}>
+                    <Footprints className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => calculateTravelTime(-1, 'TRANSIT')} className="p-1 hover:bg-gray-200 rounded text-orange-600" disabled={calculatingId === 'end-hotel' || readOnly}>
+                    <Bus className="w-4 h-4" />
+                  </button>
+                  {calculatingId === 'end-hotel' && <span className="text-xs text-gray-400 animate-pulse">...</span>}
+                </div>
+              )}
             </div>
           )}
         </div>
       )}
 
-      <InlineSearch readOnly={readOnly} />
-      <SmartSuggestions readOnly={readOnly} />
+      {/* Inline Search moved below the itinerary */}
+      {!readOnly && (
+        <div className="mt-6 pt-4 border-t border-gray-200">
+           <InlineSearch dayId={activeDay.id} />
+           <SmartSuggestions dayId={activeDay.id} />
+        </div>
+      )}
+
+      {showFlightModal && (
+        <AddFlightModal 
+          dayId={activeDay.id} 
+          existingFlight={editingFlight}
+          onClose={() => {
+            setShowFlightModal(false);
+            setEditingFlight(undefined);
+          }} 
+        />
+      )}
     </div>
+  </div>
   );
 }
+

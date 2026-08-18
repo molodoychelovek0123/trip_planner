@@ -83,14 +83,27 @@ export interface TravelSegment {
   selectedRouteIndex?: number;
 }
 
+export interface FlightDetails {
+  flightNumber: string;
+  departureAirport: string;
+  arrivalAirport: string;
+  departureTime?: string; // HH:MM
+  arrivalTime?: string;   // HH:MM
+  bufferHours?: number;   // e.g. 2
+}
+
 /**
  * Represents a place scheduled within a specific day's itinerary.
  */
 export interface DayPlanPlace extends Place {
+  type?: 'PLACE' | 'FLIGHT';
   userDuration: number;
   travelFromPrevious?: TravelSegment;
   uniqueId: string; // Unique ID for drag-and-drop (same Place ID can exist multiple times)
   lockedArrivalTime?: string; // HH:MM format if the user explicitly anchors the schedule
+  cost?: number;
+  currency?: string;
+  flightDetails?: FlightDetails;
 }
 
 /**
@@ -100,6 +113,7 @@ export interface DayData {
   id: string;
   startTime: string; // HH:MM format, defaults to "09:00"
   plan: DayPlanPlace[];
+  flights: DayPlanPlace[];
   startHotelId?: string; // ID of the place in Triplist used as the morning origin
   endHotelId?: string;   // ID of the place in Triplist used as the evening destination
   endHotelTravel?: TravelSegment; // Route from the last plan point back to the end hotel
@@ -116,8 +130,10 @@ interface TripState {
   triplist: Place[];
   days: DayData[];
   activeDayId: string | null;
+  userCurrency: string;
 
   // App Actions
+  setUserCurrency: (currency: string) => void;
   setActiveDay: (dayId: string) => void;
   addDay: () => void;
   removeDay: (dayId: string) => void;
@@ -137,6 +153,13 @@ interface TripState {
   updateTravelSegment: (dayId: string, uniqueId: string, segment: TravelSegment | undefined) => void;
   updateEndHotelTravel: (dayId: string, segment: TravelSegment | undefined) => void;
   updateLockedArrivalTime: (dayId: string, uniqueId: string, time: string | undefined) => void;
+  updatePlaceCost: (dayId: string, uniqueId: string, cost: number | undefined, currency: string | undefined) => void;
+  
+  // Flights
+  addFlight: (dayId: string, flight: DayPlanPlace) => void;
+  removeFlight: (dayId: string, uniqueId: string) => void;
+  updateFlightDetails: (dayId: string, uniqueId: string, flightDetails: FlightDetails, name: string, lat: number, lng: number, userDuration: number) => void;
+  updateFlightCost: (dayId: string, uniqueId: string, cost: number | undefined, currency: string | undefined) => void;
 
   initFromServer: (serverState: Partial<TripState>) => void;
 }
@@ -145,24 +168,22 @@ export const useTripStore = create<TripState>()(
   persist(
     (set) => ({
       triplist: defaultPlaces,
-      days: [{ id: uuidv4(), startTime: '09:00', plan: [] }],
+      days: [{ id: uuidv4(), startTime: '09:00', plan: [], flights: [] }],
       activeDayId: null, // Will be set after initial creation or load
+      userCurrency: 'USD',
 
+      setUserCurrency: (currency) => set({ userCurrency: currency }),
       setActiveDay: (dayId) => set({ activeDayId: dayId }),
 
-      addDay: () => set((state) => {
-        const newDayId = `day-${state.days.length + 1}`;
-        return {
-          days: [...state.days, { id: newDayId, startTime: '09:00', plan: [] }],
-          activeDayId: newDayId
-        };
-      }),
+      addDay: () => set((state) => ({
+        days: [...state.days, { id: uuidv4(), startTime: '09:00', plan: [], flights: [] }]
+      })),
 
       removeDay: (dayId) => set((state) => {
         const newDays = state.days.filter(d => d.id !== dayId);
         if (newDays.length === 0) {
           // Keep at least one day
-          return { days: [{ id: 'day-1', startTime: '09:00', plan: [] }], activeDayId: 'day-1' };
+          return { days: [{ id: 'day-1', startTime: '09:00', plan: [], flights: [] }], activeDayId: 'day-1' };
         }
         return {
           days: newDays,
@@ -245,6 +266,41 @@ export const useTripStore = create<TripState>()(
         })
       })),
 
+      updatePlaceCost: (dayId, uniqueId, cost, currency) => set((state) => ({
+        days: state.days.map(d => d.id === dayId ? {
+          ...d,
+          plan: d.plan.map(p => p.uniqueId === uniqueId ? { ...p, cost, currency } : p)
+        } : d)
+      })),
+
+      updateFlightDetails: (dayId, uniqueId, flightDetails, name, lat, lng, userDuration) => set((state) => ({
+        days: state.days.map(d => d.id === dayId ? {
+          ...d,
+          flights: d.flights.map(p => p.uniqueId === uniqueId ? { ...p, flightDetails, name, lat, lng, userDuration, recommendedDuration: userDuration } : p)
+        } : d)
+      })),
+      
+      addFlight: (dayId, flight) => set((state) => ({
+        days: state.days.map(d => d.id === dayId ? {
+          ...d,
+          flights: [...(d.flights || []), flight]
+        } : d)
+      })),
+
+      removeFlight: (dayId, uniqueId) => set((state) => ({
+        days: state.days.map(d => d.id === dayId ? {
+          ...d,
+          flights: d.flights.filter(p => p.uniqueId !== uniqueId)
+        } : d)
+      })),
+      
+      updateFlightCost: (dayId, uniqueId, cost, currency) => set((state) => ({
+        days: state.days.map(d => d.id === dayId ? {
+          ...d,
+          flights: d.flights.map(p => p.uniqueId === uniqueId ? { ...p, cost, currency } : p)
+        } : d)
+      })),
+
       updateTravelSegment: (dayId, uniqueId, segment) => set((state) => ({
         days: state.days.map(d => {
           if (d.id !== dayId) return d;
@@ -273,7 +329,7 @@ export const useTripStore = create<TripState>()(
         // Ensure there is always at least one day
         const days = (serverState.days && serverState.days.length > 0)
             ? serverState.days
-            : [{ id: uuidv4(), startTime: '09:00', plan: [] }];
+            : [{ id: uuidv4(), startTime: '09:00', plan: [], flights: [] }];
 
         // Lookup of existing (localStorage) days by id so we can preserve routes
         // that the server did not return (e.g. old caches or partial payloads).
@@ -300,25 +356,26 @@ export const useTripStore = create<TripState>()(
 
           // Normalize legacy hotel keys: old payloads used startHotel/endHotel
           // objects, while DayData expects startHotelId/endHotelId strings.
-          const startHotelId = typeof day.startHotelId === 'string'
-            ? day.startHotelId
+          const startHotelId = typeof (day as DayData).startHotelId === 'string'
+            ? (day as DayData).startHotelId
             : (day as any).startHotel?.id;
-          const endHotelId = typeof day.endHotelId === 'string'
-            ? day.endHotelId
+          const endHotelId = typeof (day as DayData).endHotelId === 'string'
+            ? (day as DayData).endHotelId
             : (day as any).endHotel?.id;
 
           // Preserve the end-hotel route from local state if the server omitted it.
-          const endHotelTravel = day.endHotelTravel
+          const endHotelTravel = (day as DayData).endHotelTravel
             || (localDay && localDay.endHotelTravel)
             || undefined;
 
-          if (!Array.isArray(day.plan)) {
+          if (!Array.isArray((day as DayData).plan)) {
             return {
               ...day,
               startHotelId,
               endHotelId,
-              endHotelTravel
-            };
+              endHotelTravel,
+              flights: (day as DayData).flights || []
+            } as DayData;
           }
 
           // Lookup of local (localStorage) plan items by uniqueId to preserve
@@ -337,6 +394,7 @@ export const useTripStore = create<TripState>()(
             startHotelId,
             endHotelId,
             endHotelTravel,
+            flights: (day as DayData).flights || [],
             plan: day.plan.map(item => {
               if (!item || typeof item.id !== 'string') return item;
               const triplistPlace = triplistLookup.get(item.id);
@@ -358,7 +416,7 @@ export const useTripStore = create<TripState>()(
                   : (triplistPlace?.recommendedDuration ?? item.recommendedDuration)
               } as DayPlanPlace;
             })
-          };
+          } as DayData;
         });
 
         return {
