@@ -13,6 +13,7 @@ export function MapContextMenu({
   latLng: { lat: number, lng: number } | null;
   onClose: () => void;
 }) {
+  const [step, setStep] = useState<'menu' | 'form'>('menu');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -20,14 +21,15 @@ export function MapContextMenu({
   const { addToTriplist } = useTripStore();
 
   useEffect(() => {
-    if (isOpen && inputRef.current) {
+    if (isOpen && step === 'form' && inputRef.current) {
       inputRef.current.focus();
     }
     if (!isOpen) {
+      setStep('menu');
       setName('');
       setDescription('');
     }
-  }, [isOpen]);
+  }, [isOpen, step]);
 
   if (!isOpen || !latLng) return null;
 
@@ -50,51 +52,65 @@ export function MapContextMenu({
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div
-        className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-4 w-72"
-        style={{ top: position.y, left: position.x }}
-      >
-        <h3 className="text-sm font-bold text-gray-800 mb-3">Add Custom Place</h3>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Name</label>
-            <input
-              ref={inputRef}
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              placeholder="E.g., Secret Viewpoint"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Description (Optional)</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 resize-none"
-              placeholder="Notes..."
-              rows={2}
-            />
-          </div>
-          <div className="flex justify-end space-x-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Save to Triplist
-            </button>
-          </div>
-        </form>
-      </div>
+      {step === 'menu' ? (
+        <div
+          className="fixed z-50 bg-white rounded-lg shadow-md border border-gray-200 py-1 min-w-[160px]"
+          style={{ top: position.y, left: position.x }}
+        >
+          <button
+            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+            onClick={() => setStep('form')}
+          >
+            Add Custom Place
+          </button>
+        </div>
+      ) : (
+        <div
+          className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-4 w-72"
+          style={{ top: position.y, left: position.x }}
+        >
+          <h3 className="text-sm font-bold text-gray-800 mb-3">Add Custom Place</h3>
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Name</label>
+              <input
+                ref={inputRef}
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                placeholder="E.g., Secret Viewpoint"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Description (Optional)</label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 resize-none"
+                placeholder="Notes..."
+                rows={2}
+              />
+            </div>
+            <div className="flex justify-end space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                Save to Triplist
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </>
   );
 }

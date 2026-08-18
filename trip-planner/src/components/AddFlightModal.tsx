@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Plane, X } from 'lucide-react';
 import { useTripStore, type DayPlanPlace } from '../store';
 import { getAirportLocation } from '../utils/airports';
+import { useDebounce } from '../utils/useDebounce';
+import { fetchFlightInfo } from '../utils/flights';
 
 export function AddFlightModal({ 
   dayId, 
@@ -19,11 +21,16 @@ export function AddFlightModal({
   const [departureTime, setDepartureTime] = useState('12:00');
   const [arrivalTime, setArrivalTime] = useState('14:00');
   const [bufferHours, setBufferHours] = useState('2');
+  
+  const debouncedFlightNumber = useDebounce(flightNumber, 500);
+  const [lastParsedFlight, setLastParsedFlight] = useState('');
+  const [isParsing, setIsParsing] = useState(false);
 
   useEffect(() => {
     if (existingFlight && existingFlight.flightDetails) {
       const fd = existingFlight.flightDetails;
       setFlightNumber(fd.flightNumber || '');
+      setLastParsedFlight(fd.flightNumber || ''); // Prevent auto-parsing the existing flight on open
       setDepartureAirport(fd.departureAirport || '');
       setArrivalAirport(fd.arrivalAirport || '');
       setDepartureTime(fd.departureTime || '12:00');
@@ -31,6 +38,25 @@ export function AddFlightModal({
       setBufferHours((fd.bufferHours || 2).toString());
     }
   }, [existingFlight]);
+
+  useEffect(() => {
+    const fetchInfo = async () => {
+      const trimmed = debouncedFlightNumber.trim();
+      if (trimmed.length >= 3 && trimmed !== lastParsedFlight) {
+        setIsParsing(true);
+        const info = await fetchFlightInfo(trimmed);
+        if (info) {
+          setDepartureAirport(info.departureAirport);
+          setArrivalAirport(info.arrivalAirport);
+          setDepartureTime(info.departureTime);
+          setArrivalTime(info.arrivalTime);
+          setLastParsedFlight(trimmed);
+        }
+        setIsParsing(false);
+      }
+    };
+    fetchInfo();
+  }, [debouncedFlightNumber, lastParsedFlight]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,7 +147,10 @@ export function AddFlightModal({
         
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Flight Number</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1 flex items-center gap-2">
+              Flight Number
+              {isParsing && <span className="text-xs font-normal text-blue-500 animate-pulse">Searching...</span>}
+            </label>
             <input required type="text" placeholder="e.g. AF 1234" value={flightNumber} onChange={e => setFlightNumber(e.target.value)} className="w-full border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white p-2 border" />
           </div>
           

@@ -1,6 +1,6 @@
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { useAuthStore, useTripStore } from '../store';
-import { User, LogOut, LayoutDashboard, Map as MapIcon } from 'lucide-react';
+import { LogOut, User, LayoutDashboard } from 'lucide-react';
+import { useAuthStore } from '../store/authStore';
 
 export function UserProfile() {
   const token = useAuthStore(state => state.token);

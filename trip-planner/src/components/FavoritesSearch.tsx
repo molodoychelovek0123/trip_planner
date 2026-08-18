@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
 import { useFavoritesStore } from '../favoritesStore';
-import { useTripStore } from '../store';
 import { MapPin, Search, Loader2 } from 'lucide-react';
 import { useDebounce } from '../utils/useDebounce';
 import type { PlacePredictionWrapper } from '../types/googlePlaces';
@@ -20,7 +19,6 @@ export function FavoritesSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { addFavorite } = useFavoritesStore();
-  const addToTriplist = useTripStore((state) => state.addToTriplist);
   const debouncedQuery = useDebounce(inputValue, 300);
 
   useEffect(() => {
