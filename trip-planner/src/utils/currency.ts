@@ -7,7 +7,8 @@ export const EXCHANGE_RATES: Record<string, number> = {
   'JPY': 149.50,
   'RUB': 92.50,
   'AUD': 1.53,
-  'CAD': 1.35
+  'CAD': 1.35,
+  'CNY': 7.23
 };
 
 export const CURRENCY_SYMBOLS: Record<string, string> = {
@@ -17,7 +18,8 @@ export const CURRENCY_SYMBOLS: Record<string, string> = {
   'JPY': '¥',
   'RUB': '₽',
   'AUD': 'A$',
-  'CAD': 'C$'
+  'CAD': 'C$',
+  'CNY': '¥'
 };
 
 /**

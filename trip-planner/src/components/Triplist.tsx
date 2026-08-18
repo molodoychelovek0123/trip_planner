@@ -91,7 +91,7 @@ export function Triplist({ readOnly = false }: { readOnly?: boolean }) {
 
           if (response.ok) {
               const data = await response.json();
-              apiSuggestions = (data.suggestions || []).map((s: PlacePredictionWrapper) => ({
+              apiSuggestions = (data?.suggestions || []).map((s: PlacePredictionWrapper) => ({
                  isLocal: false,
                  placeId: s.placePrediction.placeId,
                  description: s.placePrediction.text.text

@@ -243,14 +243,63 @@ export function MapView({ readOnly = false }: { readOnly?: boolean }) {
         { lat: current.lat, lng: current.lng }
       ];
 
-      const fallbackPolyline = new window.google.maps.Polyline({
+      const isManual = segment?.mode === 'MANUAL';
+
+      const polylineOptions: google.maps.PolylineOptions = {
         path: fallbackPath,
         geodesic: true,
-        strokeColor: '#60A5FA', // Tailwind blue-400
-        strokeOpacity: 0.8,
-        strokeWeight: 4,
-        map: mapInstance
-      });
+        map: mapInstance,
+        strokeWeight: 3,
+      };
+
+      if (isManual) {
+        polylineOptions.strokeOpacity = 0;
+        polylineOptions.icons = [{
+          icon: {
+            path: 'M 0,-1 0,1',
+            strokeOpacity: 1,
+            scale: 2,
+            strokeColor: '#9CA3AF' // Gray for walk/manual
+          },
+          offset: '0',
+          repeat: '10px'
+        }];
+      } else {
+        // Semi-transparent line for missing route
+        polylineOptions.strokeColor = '#EF4444'; // Red-500
+        polylineOptions.strokeOpacity = 0.4;
+        polylineOptions.strokeWeight = 4;
+        polylineOptions.geodesic = false; // Make it a straight line on the projection as requested ("прямой")
+
+        // Add a warning marker in the middle
+        let midPoint = { lat: (prev.lat + current.lat) / 2, lng: (prev.lng + current.lng) / 2 };
+        if (window.google?.maps?.geometry?.spherical) {
+          const p1 = new window.google.maps.LatLng(prev.lat, prev.lng);
+          const p2 = new window.google.maps.LatLng(current.lat, current.lng);
+          const mid = window.google.maps.geometry.spherical.interpolate(p1, p2, 0.5);
+          midPoint = { lat: mid.lat(), lng: mid.lng() };
+        }
+
+        const warningMarker = new window.google.maps.Marker({
+          position: midPoint,
+          map: mapInstance,
+          title: "Маршрут не построен",
+          icon: {
+            path: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z", // Warning triangle SVG
+            fillColor: '#F59E0B', // Amber-500
+            fillOpacity: 1,
+            strokeColor: '#FFFFFF',
+            strokeWeight: 1,
+            scale: 1,
+            anchor: new window.google.maps.Point(12, 21),
+          },
+          zIndex: 100,
+        });
+        
+        markersRef.current.push(warningMarker);
+      }
+
+      const fallbackPolyline = new window.google.maps.Polyline(polylineOptions);
       polylinesRef.current.push(fallbackPolyline);
     }
 

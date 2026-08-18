@@ -75,6 +75,7 @@ export function BudgetTracker({ readOnly = false }: { readOnly?: boolean }) {
           <option value="RUB">RUB (₽)</option>
           <option value="AUD">AUD (A$)</option>
           <option value="CAD">CAD (C$)</option>
+          <option value="CNY">CNY (¥)</option>
         </select>
       </div>
       

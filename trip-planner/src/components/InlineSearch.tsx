@@ -48,13 +48,13 @@ export function InlineSearch({ dayId, readOnly = false }: { dayId?: string, read
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              input: debouncedQuery,
+              input: debouncedQuery
             })
           });
 
           if (response.ok) {
               const data = await response.json();
-              apiSuggestions = (data.suggestions || []).map((s: PlacePredictionWrapper) => ({
+              apiSuggestions = (data?.suggestions || []).map((s: PlacePredictionWrapper) => ({
                  isLocal: false,
                  placeId: s.placePrediction.placeId,
                  description: s.placePrediction.text.text

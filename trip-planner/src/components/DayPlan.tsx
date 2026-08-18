@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useTripStore, type DayPlanPlace, type RouteAlternative, type TravelSegment, type TransitBadge, type RouteStep } from '../store';
-import { Car, Footprints, Bus, Clock, GripVertical, Hotel, AlertCircle, LockOpen, Lock, Plus, Trash2 } from 'lucide-react';
+import { Car, Footprints, Bus, Clock, GripVertical, Hotel, AlertCircle, LockOpen, Lock, Plus, Trash2, Pencil } from 'lucide-react';
 import { SmartSuggestions } from './SmartSuggestions';
 import { InlineSearch } from './InlineSearch';
 import { AddFlightModal } from './AddFlightModal';
 import { FlightCard } from './FlightCard';
 import { getAirportLocation } from '../utils/airports';
+import { wgs84ToGcj02, outOfChina } from '../utils/coords';
 import type { ComputeRouteRequest, Route, RouteLeg, RouteStepDetail } from '../types/googleRoutes';
 import {
   DndContext,
@@ -27,6 +28,54 @@ import { CSS } from '@dnd-kit/utilities';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
+function MapDeepLinks({ 
+  originLat, originLng, originName, 
+  destLat, destLng, destName 
+}: { 
+  originLat?: number, originLng?: number, originName?: string, 
+  destLat?: number, destLng?: number, destName?: string 
+}) {
+  if (!originLat || !originLng || !destLat || !destLng) return null;
+
+  // Check if coordinates are in China (if either origin or dest is in China, we can show AMap)
+  const isChina = !outOfChina(originLng, originLat) || !outOfChina(destLng, destLat);
+
+  const googleMapsUri = `https://www.google.com/maps/dir/?api=1&origin=${originLat},${originLng}&destination=${destLat},${destLng}&travelmode=transit`;
+
+  if (!isChina) {
+    return (
+      <div className="inline-block ml-auto mt-2 w-full text-right">
+        <a href={googleMapsUri} target="_blank" rel="noreferrer" className="text-[11px] font-medium text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded inline-flex items-center gap-1 transition-colors shadow-sm">
+          Открыть в Google Maps
+        </a>
+      </div>
+    );
+  }
+
+  // GCJ02 for AMap/Baidu
+  const [gcjSlng, gcjSlat] = wgs84ToGcj02(originLng, originLat);
+  const [gcjDlng, gcjDlat] = wgs84ToGcj02(destLng, destLat);
+
+  const aMapUri = `https://uri.amap.com/navigation?from=${gcjSlng},${gcjSlat},${encodeURIComponent(originName || '')}&to=${gcjDlng},${gcjDlat},${encodeURIComponent(destName || '')}&mode=bus&callnative=1`;
+
+  return (
+    <div className="relative group inline-block ml-auto mt-2 w-full text-right">
+      <button className="text-[11px] font-medium text-slate-500 hover:text-slate-800 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded inline-flex items-center gap-1 transition-colors shadow-sm">
+        Открыть в
+        <svg className="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+      </button>
+      <div className="absolute right-0 bottom-full mb-1 hidden group-hover:flex flex-col bg-white border border-slate-200 shadow-lg rounded-md overflow-hidden z-20 min-w-[140px]">
+        <a href={googleMapsUri} target="_blank" rel="noreferrer" className="text-[11px] px-3 py-2 text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors text-left border-b border-slate-100 flex items-center justify-between">
+          <span>Google Maps</span>
+        </a>
+        <a href={aMapUri} target="_blank" rel="noreferrer" className="text-[11px] px-3 py-2 text-slate-700 hover:bg-blue-50 hover:text-blue-600 transition-colors text-left flex items-center justify-between">
+          <span>AMap (高德)</span>
+        </a>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Renders an individual, draggable location card within a day's itinerary.
  * Handles the display of locked times, free time warnings, and travel segment UI.
@@ -46,6 +95,7 @@ function SortablePlaceItem({
   calculateTravelTime,
   updatePlaceCost,
   calculatingId,
+  previousPlace,
   readOnly
 }: {
   place: DayPlanPlace;
@@ -62,6 +112,7 @@ function SortablePlaceItem({
   calculateTravelTime: (index: number, mode: 'DRIVING' | 'WALKING' | 'TRANSIT') => void;
   updatePlaceCost: (dayId: string, uniqueId: string, cost: number | undefined, currency: string | undefined) => void;
   calculatingId: string | null;
+  previousPlace?: DayPlanPlace | { id: string, name: string, lat: number, lng: number };
   readOnly?: boolean;
 }) {
 
@@ -164,6 +215,7 @@ function SortablePlaceItem({
                        {place.travelFromPrevious.mode === 'DRIVING' && <Car className="w-4 h-4 text-blue-500" />}
                        {place.travelFromPrevious.mode === 'WALKING' && <Footprints className="w-4 h-4 text-green-500" />}
                        {place.travelFromPrevious.mode === 'TRANSIT' && <Bus className="w-4 h-4 text-orange-500" />}
+                       {place.travelFromPrevious.mode === 'MANUAL' && <Pencil className="w-4 h-4 text-slate-500" />}
                     </div>
                   </div>
                   {!readOnly && (
@@ -193,6 +245,10 @@ function SortablePlaceItem({
                     )}
                   </div>
                 )}
+                <MapDeepLinks 
+                  originLat={previousPlace?.lat} originLng={previousPlace?.lng} originName={previousPlace?.name}
+                  destLat={place.lat} destLng={place.lng} destName={place.name}
+                />
               </div>
             ) : (
               !readOnly && (
@@ -204,8 +260,19 @@ function SortablePlaceItem({
                    <button onClick={() => calculateTravelTime(index, 'WALKING')} className="p-1 hover:bg-gray-100 rounded text-green-600" disabled={calculatingId === place.uniqueId}>
                      <Footprints className="w-4 h-4" />
                    </button>
-                   <button onClick={() => calculateTravelTime(index, 'TRANSIT')} className="p-1 hover:bg-gray-100 rounded text-orange-600" disabled={calculatingId === place.uniqueId}>
+                   <button onClick={() => calculateTravelTime(index, 'TRANSIT')} className="p-1 hover:bg-gray-100 rounded text-orange-600" disabled={calculatingId === place.uniqueId} title="Calculate Transit">
                      <Bus className="w-4 h-4" />
+                   </button>
+                   <button onClick={() => {
+                     const manualTime = window.prompt("Enter estimated travel time in minutes:", "15");
+                     if (manualTime && !isNaN(Number(manualTime))) {
+                       updateTravelSegment(activeDayId, place.uniqueId, {
+                         mode: 'MANUAL',
+                         durationMinutes: Number(manualTime)
+                       });
+                     }
+                   }} className="p-1 hover:bg-gray-100 rounded text-slate-600" disabled={calculatingId === place.uniqueId} title="Manual Time (Walking)">
+                     <Pencil className="w-4 h-4" />
                    </button>
                    {calculatingId === place.uniqueId && <span className="text-xs text-gray-400 animate-pulse">...</span>}
                 </div>
@@ -224,29 +291,42 @@ function SortablePlaceItem({
         </div>
       )}
 
-      <div className="border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition-shadow relative group flex flex-col">
-        <div className="flex">
+      <div className="border border-slate-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition-all relative group flex flex-col">
+        <div className="flex gap-3">
           <div
             {...attributes}
             {...listeners}
-            className="cursor-grab hover:text-gray-800 text-gray-400 mr-2 mt-1 flex items-start"
+            className="cursor-grab hover:text-slate-800 text-slate-400 mt-1 flex items-start"
           >
             <GripVertical className="w-5 h-5" />
           </div>
-          <div className="flex-1">
-            <div className="flex justify-between">
-              <div>
-                <div className="font-semibold text-lg text-gray-800">{place.name}</div>
-                <div className="text-sm text-gray-500">{place.city} &bull; {place.recommendedDuration} min suggested</div>
+          <div className="flex-1 min-w-0">
+            <div className="flex justify-between items-start gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-lg text-slate-800 truncate" title={place.name}>{place.name}</div>
+                <div className="text-sm text-slate-500 truncate mt-0.5">{place.city} &bull; {place.recommendedDuration} min suggested</div>
               </div>
-              <div className="flex items-center gap-2 mt-1">
+              {!readOnly && (
+                <button
+                  onClick={() => removeFromDayPlan(activeDayId, place.uniqueId)}
+                  className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
+                  title="Remove from plan"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <div className="mt-4 flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-3 sm:gap-5 bg-slate-50 p-3 rounded-lg border border-slate-100">
+              {/* Time block */}
+              <div className="flex items-center gap-2">
                   {place.lockedArrivalTime ? (
-                    <div className="flex items-center text-sm font-mono border border-blue-500 bg-blue-50 text-blue-700 rounded px-1.5 py-0.5">
+                    <div className="flex items-center text-sm font-mono border border-blue-300 bg-blue-50 text-blue-700 rounded-md px-2 py-1 shadow-sm">
                       <input
                         type="time"
                         value={place.lockedArrivalTime}
                         onChange={(e) => updateLockedArrivalTime(activeDayId, place.uniqueId, e.target.value || undefined)}
-                        className="bg-transparent border-none focus:ring-0 p-0 text-sm w-12"
+                        className="bg-transparent border-none focus:ring-0 p-0 text-sm font-medium w-[72px]"
                         disabled={readOnly}
                       />
                       <button
@@ -255,79 +335,83 @@ function SortablePlaceItem({
                         title="Unlock auto-calculation"
                         disabled={readOnly}
                       >
-                        <Lock className="w-3 h-3" />
+                        <Lock className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   ) : (
                     <button
-                      className="flex items-center text-sm font-mono text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded px-1.5 py-0.5 transition-colors group"
+                      className="flex items-center text-sm font-mono text-slate-600 hover:text-blue-700 hover:bg-white rounded-md px-2 py-1 border border-transparent hover:border-slate-200 transition-all shadow-sm hover:shadow group"
                       onClick={() => updateLockedArrivalTime(activeDayId, place.uniqueId, arrivalTime)}
                       title="Click to lock this arrival time"
                       disabled={readOnly}
                     >
-                      {arrivalTime}
-                      {!readOnly && <LockOpen className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                      <span className="font-medium">{arrivalTime}</span>
+                      {!readOnly && <LockOpen className="w-3.5 h-3.5 ml-1.5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 group-hover:text-blue-400" />}
                     </button>
                   )}
 
-                  <span className="text-gray-500 font-mono">— {departureTime}</span>
+                  <span className="text-slate-400 font-medium">—</span>
+                  <span className="text-slate-600 font-mono text-sm font-medium px-1">{departureTime}</span>
+                  
                   {isLate && (
-                    <div className="flex items-center text-orange-500 text-xs font-medium ml-2 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200" title={`Projected arrival: ${minutesToTime(projectedArrivalMinutes)}`}>
-                      <AlertCircle className="w-3 h-3 mr-1" />
+                    <div className="flex items-center text-orange-700 text-xs font-semibold ml-1 bg-orange-100 px-2 py-1 rounded-md border border-orange-200 shadow-sm" title={`Projected arrival: ${minutesToTime(projectedArrivalMinutes)}`}>
+                      <AlertCircle className="w-3.5 h-3.5 mr-1" />
                       Late
                     </div>
                   )}
-                </div>
               </div>
-              {!readOnly && (
-                <button
-                  onClick={() => removeFromDayPlan(activeDayId, place.uniqueId)}
-                  className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  Remove
-                </button>
-              )}
-            </div>
 
-            <div className="mt-3 flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-500">Duration (min):</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="5"
-                  value={place.userDuration}
-                  onChange={(e) => updatePlaceDuration(activeDayId, place.uniqueId, Number(e.target.value) || 0)}
-                  className="w-16 text-sm border rounded px-1 py-0.5 focus:ring-blue-500 focus:border-blue-500"
-                  disabled={readOnly}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-500">Cost:</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={place.cost || ''}
-                  onChange={(e) => updatePlaceCost(activeDayId, place.uniqueId, e.target.value ? Number(e.target.value) : undefined, place.currency || 'USD')}
-                  placeholder="0.00"
-                  className="w-20 text-sm border rounded px-1 py-0.5 focus:ring-blue-500 focus:border-blue-500"
-                  disabled={readOnly}
-                />
-                <select
-                  value={place.currency || 'USD'}
-                  onChange={(e) => updatePlaceCost(activeDayId, place.uniqueId, place.cost, e.target.value)}
-                  className="w-20 text-sm border rounded px-1 py-0.5 bg-gray-50 focus:ring-blue-500 focus:border-blue-500"
-                  disabled={readOnly}
-                >
-                  <option value="USD">USD ($)</option>
-                  <option value="EUR">EUR (€)</option>
-                  <option value="RUB">RUB (₽)</option>
-                  <option value="GBP">GBP (£)</option>
-                  <option value="JPY">JPY (¥)</option>
-                </select>
+              {/* Divider */}
+              <div className="hidden sm:block w-px h-5 bg-slate-200"></div>
+
+              {/* Inputs block */}
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Duration</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      step="5"
+                      value={place.userDuration}
+                      onChange={(e) => updatePlaceDuration(activeDayId, place.uniqueId, Number(e.target.value) || 0)}
+                      className="w-[72px] text-sm font-medium text-slate-700 border-slate-200 rounded-md px-2 py-1 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
+                      disabled={readOnly}
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">min</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Cost</label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="0"
+                      value={place.cost || ''}
+                      onChange={(e) => updatePlaceCost(activeDayId, place.uniqueId, e.target.value ? Number(e.target.value) : undefined, place.currency || 'USD')}
+                      placeholder="0.00"
+                      className="w-[84px] text-sm font-medium text-slate-700 border-slate-200 rounded-md px-2 py-1 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
+                      disabled={readOnly}
+                    />
+                    <select
+                      value={place.currency || 'USD'}
+                      onChange={(e) => updatePlaceCost(activeDayId, place.uniqueId, place.cost, e.target.value)}
+                      className="text-sm font-medium text-slate-700 border-slate-200 rounded-md pl-2 pr-7 py-1 bg-white focus:ring-blue-500 focus:border-blue-500 shadow-sm"
+                      disabled={readOnly}
+                    >
+                      <option value="USD">USD ($)</option>
+                      <option value="EUR">EUR (€)</option>
+                      <option value="RUB">RUB (₽)</option>
+                      <option value="GBP">GBP (£)</option>
+                      <option value="JPY">JPY (¥)</option>
+                      <option value="CNY">CNY (¥)</option>
+                    </select>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
+        </div>
       </div>
     </div>
   );
@@ -431,7 +515,7 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
         'TRANSIT': 'TRANSIT',
       };
 
-      const requestBody: ComputeRouteRequest = {
+      const requestBody: ComputeRouteRequest & { source?: string } = {
         origin: { location: { latLng: { latitude: originLat, longitude: originLng } } },
         destination: { location: { latLng: { latitude: destLat, longitude: destLng } } },
         travelMode: routingModeMap[mode],
@@ -704,6 +788,10 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
                 }
                 currentMinutes = departureMinutes;
 
+                const originPlace = index === 0 && activeDay.startHotelId 
+                  ? triplist.find(p => p.id === activeDay.startHotelId) 
+                  : index > 0 ? dayPlan[index - 1] : undefined;
+
                 return (
                   <SortablePlaceItem
                     key={place.uniqueId}
@@ -721,6 +809,7 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
                     calculatingId={calculatingId}
                     updateLockedArrivalTime={updateLockedArrivalTime}
                     updatePlaceCost={updatePlaceCost}
+                    previousPlace={originPlace}
                     readOnly={readOnly}
                   />
                 );
@@ -791,31 +880,69 @@ export function DayPlan({ readOnly = false }: { readOnly?: boolean }) {
               </div>
               
               {activeDay.endHotelTravel ? (
-                <div className="flex justify-end gap-2 items-center px-1">
-                  {!readOnly && (
-                    <button
-                      className="text-xs text-blue-500 hover:text-blue-700 underline"
-                      onClick={() => updateEndHotelTravel(activeDay.id, undefined)}
-                    >
-                      Change mode
+                  <div className="flex flex-col w-full">
+                    <div className="flex justify-end gap-2 items-center px-1">
+                      {!readOnly && (
+                        <button
+                          className="text-xs text-blue-500 hover:text-blue-700 underline"
+                          onClick={() => updateEndHotelTravel(activeDay.id, undefined)}
+                        >
+                          Change mode
+                        </button>
+                      )}
+                    </div>
+                    {activeDay.endHotelTravel.routeAlternatives && activeDay.endHotelTravel.routeAlternatives.length > 1 && !readOnly && (
+                      <div className="flex flex-wrap gap-1 mt-2 justify-end">
+                         {/* alternatives logic is simplified for end hotel in this view for now */}
+                      </div>
+                    )}
+                    <MapDeepLinks 
+                      originLat={dayPlan.length > 0 ? dayPlan[dayPlan.length - 1].lat : undefined}
+                      originLng={dayPlan.length > 0 ? dayPlan[dayPlan.length - 1].lng : undefined}
+                      originName={dayPlan.length > 0 ? dayPlan[dayPlan.length - 1].name : undefined}
+                      destLat={triplist.find(p => p.id === activeDay.endHotelId)?.lat}
+                      destLng={triplist.find(p => p.id === activeDay.endHotelId)?.lng}
+                      destName={triplist.find(p => p.id === activeDay.endHotelId)?.name}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 justify-end px-1">
+                    <span className="text-gray-500 text-xs mr-1">Calculate:</span>
+                    <button onClick={() => calculateTravelTime(-1, 'DRIVING')} className="p-1 hover:bg-gray-200 rounded text-blue-600" disabled={calculatingId === 'end-hotel'}>
+                      <Car className="w-4 h-4" />
                     </button>
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-center justify-end gap-2 px-1">
-                  <span className="text-gray-400 text-xs mr-2">Calculate:</span>
-                  <button onClick={() => calculateTravelTime(-1, 'DRIVING')} className="p-1 hover:bg-gray-200 rounded text-blue-600" disabled={calculatingId === 'end-hotel' || readOnly}>
-                    <Car className="w-4 h-4" />
-                  </button>
-                  <button onClick={() => calculateTravelTime(-1, 'WALKING')} className="p-1 hover:bg-gray-200 rounded text-green-600" disabled={calculatingId === 'end-hotel' || readOnly}>
-                    <Footprints className="w-4 h-4" />
-                  </button>
-                  <button onClick={() => calculateTravelTime(-1, 'TRANSIT')} className="p-1 hover:bg-gray-200 rounded text-orange-600" disabled={calculatingId === 'end-hotel' || readOnly}>
-                    <Bus className="w-4 h-4" />
-                  </button>
-                  {calculatingId === 'end-hotel' && <span className="text-xs text-gray-400 animate-pulse">...</span>}
-                </div>
-              )}
+                    <button onClick={() => calculateTravelTime(-1, 'WALKING')} className="p-1 hover:bg-gray-200 rounded text-green-600" disabled={calculatingId === 'end-hotel'}>
+                      <Footprints className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => calculateTravelTime(-1, 'TRANSIT')} className="p-1 hover:bg-gray-200 rounded text-orange-600" disabled={calculatingId === 'end-hotel'} title="Calculate Transit">
+                      <Bus className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => {
+                       const manualTime = window.prompt("Enter estimated travel time in minutes:", "15");
+                       if (manualTime && !isNaN(Number(manualTime))) {
+                         updateEndHotelTravel(activeDay.id, {
+                           mode: 'MANUAL',
+                           durationMinutes: Number(manualTime)
+                         });
+                       }
+                    }} className="p-1 hover:bg-gray-200 rounded text-slate-600" disabled={calculatingId === 'end-hotel'} title="Manual Time (Walking)">
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    {calculatingId === 'end-hotel' && <span className="text-xs text-gray-400 animate-pulse">...</span>}
+                    {(!readOnly) && (
+                      <div className="ml-2 pl-2 border-l border-gray-200">
+                        <MapDeepLinks 
+                          originLat={dayPlan.length > 0 ? dayPlan[dayPlan.length - 1].lat : undefined}
+                          originLng={dayPlan.length > 0 ? dayPlan[dayPlan.length - 1].lng : undefined}
+                          originName={dayPlan.length > 0 ? dayPlan[dayPlan.length - 1].name : undefined}
+                          destLat={triplist.find(p => p.id === activeDay.endHotelId)?.lat}
+                          destLng={triplist.find(p => p.id === activeDay.endHotelId)?.lng}
+                          destName={triplist.find(p => p.id === activeDay.endHotelId)?.name}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
             </div>
           )}
         </div>

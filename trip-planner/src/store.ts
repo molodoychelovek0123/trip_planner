@@ -78,7 +78,7 @@ export interface RouteAlternative {
  */
 export interface TravelSegment {
   durationMinutes: number; // Dynamically matches the selected alternative
-  mode: 'DRIVING' | 'WALKING' | 'TRANSIT';
+  mode: 'DRIVING' | 'WALKING' | 'TRANSIT' | 'MANUAL';
   routeAlternatives?: RouteAlternative[];
   selectedRouteIndex?: number;
 }
@@ -131,8 +131,12 @@ interface TripState {
   days: DayData[];
   activeDayId: string | null;
   userCurrency: string;
+  isSyncing: boolean;
+  lastSyncTime: number | null;
+  syncError: string | null;
 
   // App Actions
+  setDays: (days: DayData[]) => void;
   setUserCurrency: (currency: string) => void;
   setActiveDay: (dayId: string) => void;
   addDay: () => void;
@@ -171,7 +175,11 @@ export const useTripStore = create<TripState>()(
       days: [{ id: uuidv4(), startTime: '09:00', plan: [], flights: [] }],
       activeDayId: null, // Will be set after initial creation or load
       userCurrency: 'USD',
+      isSyncing: false,
+      lastSyncTime: null,
+      syncError: null,
 
+      setDays: (days) => set({ days }),
       setUserCurrency: (currency) => set({ userCurrency: currency }),
       setActiveDay: (dayId) => set({ activeDayId: dayId }),
 

@@ -1,6 +1,6 @@
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { useAuthStore } from '../store';
-import { User, LogOut, LayoutDashboard } from 'lucide-react';
+import { useAuthStore, useTripStore } from '../store';
+import { User, LogOut, LayoutDashboard, Map as MapIcon } from 'lucide-react';
 
 export function UserProfile() {
   const token = useAuthStore(state => state.token);
@@ -45,6 +45,7 @@ export function UserProfile() {
           Dashboard
         </Link>
       )}
+
       <div className="flex items-center space-x-2 text-slate-700 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200">
         <User className="w-4 h-4" />
         <span className="text-sm font-medium pr-2 border-r border-slate-300">Profile</span>

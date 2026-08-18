@@ -10,6 +10,7 @@ from .database import get_db, engine
 from . import models
 from .routers import importer, expenses, flights
 from .services import scheduler
+from .utils.coords import gcj02_to_wgs84, wgs84_to_gcj02
 from authlib.integrations.starlette_client import OAuth
 from fastapi import Request
 from fastapi.responses import RedirectResponse
@@ -174,14 +175,9 @@ def log_event(event_type: str, data: dict):
 @app.post("/api/places/autocomplete")
 async def places_autocomplete(request: dict, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
-    Proxy endpoint for Google Maps Places API Autocomplete.
-
-    This fulfills the requirement to obscure the API key from the client and allows us
-    to track search metric usage. It directly forwards the payload to Google.
-
-    Args:
-        request (dict): The JSON body containing the 'input' string.
+    Proxy endpoint for Google Maps and AMap Places API Autocomplete.
     """
+    # Always use Google Maps
     if not GOOGLE_MAPS_API_KEY:
         raise HTTPException(status_code=500, detail="Google Maps API Key not configured")
 
@@ -191,7 +187,7 @@ async def places_autocomplete(request: dict, background_tasks: BackgroundTasks, 
         response = await client.post(
             "https://places.googleapis.com/v1/places:autocomplete",
             headers={"X-Goog-Api-Key": GOOGLE_MAPS_API_KEY, "Content-Type": "application/json"},
-            json=request
+            json={k: v for k, v in request.items() if k != "source"}
         )
         if response.status_code != 200:
             raise HTTPException(status_code=response.status_code, detail=response.text)
@@ -223,7 +219,7 @@ async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Sessio
             "recommendedDuration": cached_place.recommended_duration
         }
 
-    # 2. If not found, fetch from Google API
+    # 2. Fetch from Google API
     if not GOOGLE_MAPS_API_KEY:
         raise HTTPException(status_code=500, detail="Google Maps API Key not configured")
 
@@ -261,7 +257,7 @@ async def get_place(place_id: str, background_tasks: BackgroundTasks, db: Sessio
             recommended_duration = 60
         elif "shopping_mall" in types or "department_store" in types:
             recommended_duration = 90
-            
+        
         photo_reference = None
         photos = data.get("photos", [])
         if photos:
@@ -676,10 +672,6 @@ async def compute_routes(request: dict, background_tasks: BackgroundTasks, db: S
             models.RouteCache.timestamp > cutoff
         ).first()
 
-        if cached_route:
-            background_tasks.add_task(log_event, "route_calculated", {"origin": origin_id, "dest": dest_id, "mode": mode, "source": "cache"})
-            return json.loads(cached_route.data_json)
-
     # 2. Fetch from Google
     if not GOOGLE_MAPS_API_KEY:
         raise HTTPException(status_code=500, detail="Google Maps API Key not configured")
@@ -691,7 +683,7 @@ async def compute_routes(request: dict, background_tasks: BackgroundTasks, db: S
     }
 
     # remove the field mask from the payload if it's there
-    payload = {k: v for k, v in request.items() if k != "X-Goog-FieldMask"}
+    payload = {k: v for k, v in request.items() if k not in ["X-Goog-FieldMask", "source"]}
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
@@ -705,7 +697,7 @@ async def compute_routes(request: dict, background_tasks: BackgroundTasks, db: S
 
         data = response.json()
 
-        # 3. Save to Cache
+        # 4. Save to Cache
         if origin_id and dest_id and data.get("routes"):
             new_cache = models.RouteCache(
                 origin_id=origin_id,
