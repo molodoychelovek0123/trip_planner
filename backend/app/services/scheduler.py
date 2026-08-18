@@ -119,14 +119,28 @@ async def calculate_day_timeline(trip_day_id: str, db: Session, api_key: str):
             if route_data and "routes" in route_data and len(route_data["routes"]) > 0:
                 route = route_data["routes"][0]
                 duration_seconds = int(route.get("duration", "0s").replace("s", ""))
-                travel_segment = {
-                    "distanceMeters": route.get("distanceMeters", 0),
-                    "durationSeconds": duration_seconds,
-                }
-                item.travel_data_json = json.dumps(travel_segment)
+                # Preserve existing fields like routeAlternatives and mode
+                existing_travel = {}
+                if item.travel_data_json:
+                    try:
+                        existing_travel = json.loads(item.travel_data_json)
+                    except Exception:
+                        pass
+                        
+                existing_travel["distanceMeters"] = route.get("distanceMeters", 0)
+                existing_travel["durationSeconds"] = duration_seconds
+                existing_travel["durationMinutes"] = duration_seconds // 60
+                item.travel_data_json = json.dumps(existing_travel)
                 current_minutes += duration_seconds // 60
             else:
-                item.travel_data_json = json.dumps({"error": "No route found", "durationSeconds": 0})
+                existing_travel = {}
+                if item.travel_data_json:
+                    try:
+                        existing_travel = json.loads(item.travel_data_json)
+                    except Exception:
+                        pass
+                existing_travel["error"] = "No route found"
+                item.travel_data_json = json.dumps(existing_travel)
         
         # Advance the origin and time
         current_origin_id = dest_id
@@ -138,13 +152,28 @@ async def calculate_day_timeline(trip_day_id: str, db: Session, api_key: str):
         route_data = await get_route(current_origin_id, day.end_hotel_place_id, db, api_key, departure_time=departure_time_str, mode="TRANSIT")
         if route_data and "routes" in route_data and len(route_data["routes"]) > 0:
             route = route_data["routes"][0]
-            travel_segment = {
-                "distanceMeters": route.get("distanceMeters", 0),
-                "durationSeconds": int(route.get("duration", "0s").replace("s", "")),
-            }
-            day.end_hotel_travel_json = json.dumps(travel_segment)
+            # Preserve existing fields like routeAlternatives and mode
+            existing_travel = {}
+            if day.end_hotel_travel_json:
+                try:
+                    existing_travel = json.loads(day.end_hotel_travel_json)
+                except Exception:
+                    pass
+                    
+            duration_seconds = int(route.get("duration", "0s").replace("s", ""))
+            existing_travel["distanceMeters"] = route.get("distanceMeters", 0)
+            existing_travel["durationSeconds"] = duration_seconds
+            existing_travel["durationMinutes"] = duration_seconds // 60
+            day.end_hotel_travel_json = json.dumps(existing_travel)
         else:
-            day.end_hotel_travel_json = json.dumps({"error": "No route found", "durationSeconds": 0})
+            existing_travel = {}
+            if day.end_hotel_travel_json:
+                try:
+                    existing_travel = json.loads(day.end_hotel_travel_json)
+                except Exception:
+                    pass
+            existing_travel["error"] = "No route found"
+            day.end_hotel_travel_json = json.dumps(existing_travel)
             
     db.commit()
     return True

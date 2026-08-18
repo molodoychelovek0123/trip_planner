@@ -363,10 +363,24 @@ export const useTripStore = create<TripState>()(
             ? (day as DayData).endHotelId
             : (day as any).endHotel?.id;
 
-          // Preserve the end-hotel route from local state if the server omitted it.
-          const endHotelTravel = (day as DayData).endHotelTravel
-            || (localDay && localDay.endHotelTravel)
-            || undefined;
+          // Preserve the end-hotel route from local state if the server omitted it,
+          // or if the server omitted routeAlternatives which we need for drawing polylines.
+          const endHotelTravel = (() => {
+            const serverTravel = (day as DayData).endHotelTravel;
+            const localTravel = localDay?.endHotelTravel;
+            if (!serverTravel) return localTravel;
+            if (!localTravel) return serverTravel;
+            
+            if (!serverTravel.routeAlternatives && localTravel.routeAlternatives) {
+              return {
+                ...serverTravel,
+                routeAlternatives: localTravel.routeAlternatives,
+                mode: localTravel.mode || serverTravel.mode,
+                selectedRouteIndex: localTravel.selectedRouteIndex !== undefined ? localTravel.selectedRouteIndex : serverTravel.selectedRouteIndex
+              };
+            }
+            return serverTravel;
+          })();
 
           if (!Array.isArray((day as DayData).plan)) {
             return {
@@ -401,10 +415,24 @@ export const useTripStore = create<TripState>()(
               const localItem = typeof item.uniqueId === 'string' ? localItemLookup.get(item.uniqueId) : undefined;
               return {
                 ...item,
-                // Preserve the route from local state if the server omitted it.
-                travelFromPrevious: item.travelFromPrevious
-                  || (localItem && localItem.travelFromPrevious)
-                  || undefined,
+                // Preserve the route from local state if the server omitted it,
+                // or if the server omitted routeAlternatives which we need for drawing polylines.
+                travelFromPrevious: (() => {
+                  const serverTravel = item.travelFromPrevious;
+                  const localTravel = localItem?.travelFromPrevious;
+                  if (!serverTravel) return localTravel;
+                  if (!localTravel) return serverTravel;
+                  
+                  if (!serverTravel.routeAlternatives && localTravel.routeAlternatives) {
+                    return {
+                      ...serverTravel,
+                      routeAlternatives: localTravel.routeAlternatives,
+                      mode: localTravel.mode || serverTravel.mode,
+                      selectedRouteIndex: localTravel.selectedRouteIndex !== undefined ? localTravel.selectedRouteIndex : serverTravel.selectedRouteIndex
+                    };
+                  }
+                  return serverTravel;
+                })(),
                 // Fill any missing place metadata from triplist (does not override
                 // explicit values already present on the item).
                 lat: typeof item.lat === 'number' ? item.lat : (triplistPlace?.lat ?? item.lat),
